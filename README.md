@@ -10,8 +10,8 @@ The first prototype supports:
 - A PkiStudioJS-style key material tree for selecting generated output
 - PKCS#8 private key DER display in the embedded PkiStudioJS viewer by selecting the private key tree item
 - SPKI public key DER display in the embedded PkiStudioJS viewer by selecting the public key tree item
+- PKCS#12 (`.p12`, `.pfx`) key import, including password-protected files, through the Open Key menu
 - PkiStudioJS new-window output opens in a viewer-only page
-- SHA-256 fingerprints for the generated private and public key DER
 
 The application intentionally does not provide its own save or download buttons for generated key material. Generated DER is shown in the PkiStudioJS viewer, and users can use the viewer's Save menu when they want to write the current DER document to a file.
 
@@ -47,3 +47,5 @@ The prototype vendors the PkiStudioJS browser assets under `public/vendor/pkistu
 - `oids.json`
 
 Those files are loaded directly by `index.html` so the generated key material can be displayed with the same ASN.1 viewer UI used by PkiStudioJS.
+
+PKCS#12 parsing is handled by PKIjs, with ASN.1 support from asn1js.
