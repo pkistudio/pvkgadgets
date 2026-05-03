@@ -1,9 +1,10 @@
 import './styles.css';
 import * as asn1js from 'asn1js';
-import { AttributeTypeAndValue, CertificationRequest, RelativeDistinguishedNames } from 'pkijs';
-import { readPkcs12Keys, type Pkcs12KeyMaterial } from './pkcs12';
+import { AttributeTypeAndValue, Certificate, CertificationRequest, RelativeDistinguishedNames } from 'pkijs';
+import { readPkcs12Keys, writePkcs12Keys, type Pkcs12KeyMaterial } from './pkcs12';
 
 type PkiStudioInstance = {
+  close?: () => void;
   getBytes?: () => Uint8Array | null;
   loadBytes: (bytes: Uint8Array, notice?: string) => void;
   root?: DocumentFragment | Element;
@@ -13,9 +14,19 @@ type PkiStudioApi = {
   init: (options: { mount: string | Element; oidUrl?: string; shadowRoot?: boolean; newWindowUrl?: string }) => PkiStudioInstance;
 };
 
+type SaveFilePickerOptions = {
+  suggestedName?: string;
+  types?: Array<{ description: string; accept: Record<string, string[]> }>;
+};
+
+type SaveFileHandle = {
+  createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>;
+};
+
 declare global {
   interface Window {
     PkiStudio?: PkiStudioApi;
+    showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<SaveFileHandle>;
   }
 }
 
@@ -34,7 +45,9 @@ type SubjectDnMaterial = {
   bytes: Uint8Array;
 };
 
-type KeyMaterial = Pkcs12KeyMaterial & {
+type KeyMaterial = Omit<Pkcs12KeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
+  privateKeyDer?: Uint8Array;
+  publicKeyDer?: Uint8Array;
   csrs?: CsrMaterial[];
   subjectDns?: SubjectDnMaterial[];
 };
@@ -154,13 +167,26 @@ app.innerHTML = `
             <div id="algorithmMenu" class="submenu" role="menu" hidden></div>
           </div>
           <button id="openKeyButton" type="button">Open Key</button>
+          <button id="saveKeyButton" type="button">Save Key</button>
           <input id="openKeyInput" class="visually-hidden" type="file" accept=".p12,.pfx,application/pkcs12,application/x-pkcs12" />
+          <input id="certificateInput" class="visually-hidden" type="file" accept=".cer,.crt,.der,.pem,application/pkix-cert,application/x-x509-ca-cert" />
         </nav>
         <div id="privateKeyMenu" class="node-context-menu" role="menu" hidden>
           <button id="newCsrMenuItem" type="button" role="menuitem">New CSR</button>
+          <button id="deletePrivateKeyMenuItem" type="button" role="menuitem">Delete</button>
         </div>
         <div id="keyPairMenu" class="node-context-menu" role="menu" hidden>
+          <button id="addCertificateMenuItem" type="button" role="menuitem">add Certificate</button>
           <button id="newSubjectDnMenuItem" type="button" role="menuitem">New SubjectDN</button>
+          <button id="deleteKeyPairMenuItem" type="button" role="menuitem">Delete</button>
+        </div>
+        <div id="certificateMenu" class="node-context-menu" role="menu" hidden>
+          <button id="newCertificateSubjectDnMenuItem" type="button" role="menuitem">New SubjectDN</button>
+          <button id="deleteCertificateMenuItem" type="button" role="menuitem">Delete</button>
+        </div>
+        <div id="childItemMenu" class="node-context-menu" role="menu" hidden>
+          <button id="copyCsrPemMenuItem" type="button" role="menuitem" hidden>Copy as PEM</button>
+          <button id="deleteChildItemMenuItem" type="button" role="menuitem">Delete</button>
         </div>
         <div id="keyTree" class="tree empty">No key generated yet.</div>
         <p id="formNotice" class="notice">Generated DER is sent to the ASN.1 viewer.</p>
@@ -182,13 +208,25 @@ app.innerHTML = `
         </div>
       </form>
     </dialog>
+    <dialog id="saveKeySelectionDialog" class="password-dialog save-key-dialog">
+      <form method="dialog" class="password-panel">
+        <h2>Save Key</h2>
+        <div id="saveKeyList" class="checkbox-list" role="group" aria-label="Key pairs"></div>
+        <div id="saveKeySelectionError" class="dialog-error" role="alert" hidden></div>
+        <div class="dialog-actions">
+          <button type="submit" value="cancel">Cancel</button>
+          <button id="saveKeySelectionNextButton" type="submit" value="next">Next</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="csrDialog" class="password-dialog">
       <form method="dialog" class="password-panel">
         <h2>New CSR</h2>
         <label class="password-field">
           <span>subjectDN</span>
-          <input id="csrSubjectInput" type="text" autocomplete="off" placeholder="CN=example.com, O=Example, C=JP" />
+          <input id="csrSubjectInput" type="text" autocomplete="off" readonly />
         </label>
+        <div id="csrSubjectError" class="dialog-error" role="alert" hidden></div>
         <label class="password-field">
           <span>Hash algorithm</span>
           <select id="csrHashSelect"></select>
@@ -217,19 +255,36 @@ app.innerHTML = `
 
 const newKeyButton = query<HTMLButtonElement>('#newKeyButton');
 const openKeyButton = query<HTMLButtonElement>('#openKeyButton');
+const saveKeyButton = query<HTMLButtonElement>('#saveKeyButton');
 const openKeyInput = query<HTMLInputElement>('#openKeyInput');
+const certificateInput = query<HTMLInputElement>('#certificateInput');
 const algorithmMenu = query<HTMLDivElement>('#algorithmMenu');
 const privateKeyMenu = query<HTMLDivElement>('#privateKeyMenu');
 const newCsrMenuItem = query<HTMLButtonElement>('#newCsrMenuItem');
+const deletePrivateKeyMenuItem = query<HTMLButtonElement>('#deletePrivateKeyMenuItem');
 const keyPairMenu = query<HTMLDivElement>('#keyPairMenu');
+const addCertificateMenuItem = query<HTMLButtonElement>('#addCertificateMenuItem');
 const newSubjectDnMenuItem = query<HTMLButtonElement>('#newSubjectDnMenuItem');
+const deleteKeyPairMenuItem = query<HTMLButtonElement>('#deleteKeyPairMenuItem');
+const certificateMenu = query<HTMLDivElement>('#certificateMenu');
+const newCertificateSubjectDnMenuItem = query<HTMLButtonElement>('#newCertificateSubjectDnMenuItem');
+const deleteCertificateMenuItem = query<HTMLButtonElement>('#deleteCertificateMenuItem');
+const childItemMenu = query<HTMLDivElement>('#childItemMenu');
+const copyCsrPemMenuItem = query<HTMLButtonElement>('#copyCsrPemMenuItem');
+const deleteChildItemMenuItem = query<HTMLButtonElement>('#deleteChildItemMenuItem');
 const keyTree = query<HTMLElement>('#keyTree');
 const formNotice = query<HTMLElement>('#formNotice');
 const pkcs12PasswordDialog = query<HTMLDialogElement>('#pkcs12PasswordDialog');
 const pkcs12PasswordTitle = query<HTMLElement>('#pkcs12PasswordTitle');
 const pkcs12PasswordInput = query<HTMLInputElement>('#pkcs12PasswordInput');
+const pkcs12PasswordSubmitButton = query<HTMLButtonElement>('#pkcs12PasswordDialog button[type="submit"][value="open"]');
+const saveKeySelectionDialog = query<HTMLDialogElement>('#saveKeySelectionDialog');
+const saveKeyList = query<HTMLElement>('#saveKeyList');
+const saveKeySelectionError = query<HTMLElement>('#saveKeySelectionError');
+const saveKeySelectionNextButton = query<HTMLButtonElement>('#saveKeySelectionNextButton');
 const csrDialog = query<HTMLDialogElement>('#csrDialog');
 const csrSubjectInput = query<HTMLInputElement>('#csrSubjectInput');
+const csrSubjectError = query<HTMLElement>('#csrSubjectError');
 const csrHashSelect = query<HTMLSelectElement>('#csrHashSelect');
 const subjectDnDialog = query<HTMLDialogElement>('#subjectDnDialog');
 const subjectDnInput = query<HTMLInputElement>('#subjectDnInput');
@@ -240,6 +295,9 @@ let selectedNode: SelectedKeyNode | null = null;
 let supportedAlgorithms: SupportedKeyAlgorithm[] = [];
 let privateKeyMenuKeyId: string | null = null;
 let keyPairMenuKeyId: string | null = null;
+let certificateMenuKeyId: string | null = null;
+let childItemMenuTarget: SelectedKeyNode | null = null;
+let pendingCertificateKeyId: string | null = null;
 
 const CSR_HASH_ALGORITHMS = ['SHA-256', 'SHA-384', 'SHA-512'];
 
@@ -281,15 +339,42 @@ openKeyButton.addEventListener('click', () => {
   openKeyInput.click();
 });
 
+saveKeyButton.addEventListener('click', async () => {
+  if (saveKeyButton.disabled) return;
+  setAlgorithmMenuOpen(false);
+
+  const selectedKeyIds = await requestSaveKeySelection();
+  if (!selectedKeyIds) return;
+
+  const password = await requestPkcs12Password('Save PKCS#12', { value: 'save', label: 'Save' });
+  if (password === null) return;
+
+  await savePkcs12File(selectedKeyIds, password);
+});
+
+saveKeyList.addEventListener('change', () => {
+  updateSaveKeySelectionState();
+});
+
 openKeyInput.addEventListener('change', async () => {
   const [file] = openKeyInput.files ?? [];
   openKeyInput.value = '';
   if (!file) return;
 
-  const password = await requestPkcs12Password(file.name);
+  const password = await requestPkcs12Password(`Open ${file.name}`, { value: 'open', label: 'Open' });
   if (password === null) return;
 
   await openPkcs12File(file, password);
+});
+
+certificateInput.addEventListener('change', async () => {
+  const [file] = certificateInput.files ?? [];
+  const keyId = pendingCertificateKeyId;
+  certificateInput.value = '';
+  pendingCertificateKeyId = null;
+  if (!file || !keyId) return;
+
+  await addCertificateFile(keyId, file);
 });
 
 newCsrMenuItem.addEventListener('click', async () => {
@@ -297,10 +382,16 @@ newCsrMenuItem.addEventListener('click', async () => {
   setPrivateKeyMenuOpen(false);
   if (!keyId) return;
 
-  const options = await requestCsrOptions();
+  const options = await requestCsrOptions(keyId);
   if (!options) return;
 
-  await createCsr(keyId, options.subjectDn, options.hashAlgorithm);
+  await createCsr(keyId, options.subjectDn, options.subjectBytes, options.hashAlgorithm);
+});
+
+deletePrivateKeyMenuItem.addEventListener('click', () => {
+  const keyId = privateKeyMenuKeyId;
+  setPrivateKeyMenuOpen(false);
+  if (keyId) deleteChildNode({ keyId, kind: 'private' });
 });
 
 newSubjectDnMenuItem.addEventListener('click', async () => {
@@ -312,6 +403,46 @@ newSubjectDnMenuItem.addEventListener('click', async () => {
   if (subjectDn === null) return;
 
   createSubjectDn(keyId, subjectDn);
+});
+
+addCertificateMenuItem.addEventListener('click', () => {
+  const keyId = keyPairMenuKeyId;
+  setKeyPairMenuOpen(false);
+  if (!keyId) return;
+
+  pendingCertificateKeyId = keyId;
+  certificateInput.click();
+});
+
+deleteKeyPairMenuItem.addEventListener('click', () => {
+  const keyId = keyPairMenuKeyId;
+  setKeyPairMenuOpen(false);
+  if (keyId) deleteKeyPair(keyId);
+});
+
+newCertificateSubjectDnMenuItem.addEventListener('click', () => {
+  const keyId = certificateMenuKeyId;
+  setCertificateMenuOpen(false);
+  if (!keyId) return;
+  createSubjectDnFromCertificate(keyId);
+});
+
+deleteCertificateMenuItem.addEventListener('click', () => {
+  const keyId = certificateMenuKeyId;
+  setCertificateMenuOpen(false);
+  if (keyId) deleteChildNode({ keyId, kind: 'certificate' });
+});
+
+copyCsrPemMenuItem.addEventListener('click', async () => {
+  const target = childItemMenuTarget;
+  setChildItemMenuOpen(false);
+  if (target?.kind === 'csr') await copyCsrAsPem(target);
+});
+
+deleteChildItemMenuItem.addEventListener('click', () => {
+  const target = childItemMenuTarget;
+  setChildItemMenuOpen(false);
+  if (target) deleteChildNode(target);
 });
 
 keyTree.addEventListener('click', (event) => {
@@ -326,6 +457,32 @@ keyTree.addEventListener('click', (event) => {
     return;
   }
 
+  const certificateMenuButton = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-certificate-menu]') : null;
+  if (certificateMenuButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const keyId = certificateMenuButton.dataset.keyId ?? '';
+    setCertificateMenuOpen(certificateMenuKeyId !== keyId || certificateMenu.hidden, keyId, certificateMenuButton);
+    return;
+  }
+
+  const childMenuButton = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-child-menu]') : null;
+  if (childMenuButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    setChildItemMenuOpen(
+      !isChildItemMenuTarget(childMenuButton) || childItemMenu.hidden,
+      {
+        keyId: childMenuButton.dataset.keyId ?? '',
+        kind: childMenuButton.dataset.keyNode as KeyNodeKind,
+        csrId: childMenuButton.dataset.csrId,
+        subjectDnId: childMenuButton.dataset.subjectDnId
+      },
+      childMenuButton
+    );
+    return;
+  }
+
   const privateMenuButton = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-private-menu]') : null;
   if (privateMenuButton) {
     event.preventDefault();
@@ -336,6 +493,10 @@ keyTree.addEventListener('click', (event) => {
   }
 
   const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-key-node]') : null;
+  setPrivateKeyMenuOpen(false);
+  setKeyPairMenuOpen(false);
+  setCertificateMenuOpen(false);
+  setChildItemMenuOpen(false);
   if (!button) return;
 
   selectKeyNode(button.dataset.keyId ?? '', button.dataset.keyNode as KeyNodeKind, button.dataset.csrId, button.dataset.subjectDnId);
@@ -369,12 +530,20 @@ document.addEventListener('click', (event) => {
     setAlgorithmMenuOpen(false);
   }
 
-  if (event.target instanceof Node && !privateKeyMenu.contains(event.target) && !keyTree.contains(event.target)) {
+  if (event.target instanceof Element && !privateKeyMenu.contains(event.target) && !event.target.closest('[data-private-menu]')) {
     setPrivateKeyMenuOpen(false);
   }
 
-  if (event.target instanceof Node && !keyPairMenu.contains(event.target) && !keyTree.contains(event.target)) {
+  if (event.target instanceof Element && !keyPairMenu.contains(event.target) && !event.target.closest('[data-keypair-menu]')) {
     setKeyPairMenuOpen(false);
+  }
+
+  if (event.target instanceof Element && !certificateMenu.contains(event.target) && !event.target.closest('[data-certificate-menu]')) {
+    setCertificateMenuOpen(false);
+  }
+
+  if (event.target instanceof Element && !childItemMenu.contains(event.target) && !event.target.closest('[data-child-menu]')) {
+    setChildItemMenuOpen(false);
   }
 });
 
@@ -434,16 +603,183 @@ async function openPkcs12File(file: File, password: string): Promise<void> {
   }
 }
 
-function requestPkcs12Password(fileName: string): Promise<string | null> {
-  pkcs12PasswordTitle.textContent = `Open ${fileName}`;
+async function addCertificateFile(keyId: string, file: File): Promise<void> {
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  if (!keyMaterial) return;
+
+  setBusy(true);
+  setNotice(`Adding ${file.name}...`);
+
+  try {
+    const certificateDer = await readCertificateFile(file);
+    const certificate = Certificate.fromBER(toArrayBuffer(certificateDer));
+    const certificatePublicKeyDer = new Uint8Array(certificate.subjectPublicKeyInfo.toSchema().toBER(false));
+    const match = await certificateMatchesKeyMaterial(keyMaterial, certificatePublicKeyDer);
+
+    if (!match && !window.confirm('The certificate public key does not match the private key. Apply this certificate anyway?')) return;
+
+    keyMaterial.certificateDer = certificateDer;
+    if (match) keyMaterial.publicKeyDer = certificatePublicKeyDer;
+    selectedNode = { keyId: keyMaterial.id, kind: 'certificate' };
+    renderKeyTree();
+    showSelectedNode();
+    setNotice(`${match ? 'Added' : 'Applied'} Certificate from ${file.name}.`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function savePkcs12File(keyIds: string[], password: string): Promise<void> {
+  setBusy(true);
+  setNotice('Creating PKCS#12...');
+
+  try {
+    const selectedKeys = keyIds.map((keyId) => keyMaterials.find((material) => material.id === keyId)).filter((material): material is KeyMaterial => Boolean(material));
+    const bytes = await writePkcs12Keys(selectedKeys, password);
+    const fileName = getPkcs12FileName(selectedKeys);
+    await saveBytesToFile(bytes, fileName);
+    setNotice(`Saved ${selectedKeys.length} key pair${selectedKeys.length === 1 ? '' : 's'} to ${fileName}.`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function readCertificateFile(file: File): Promise<Uint8Array> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  const pemMatch = /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/i.exec(text);
+  if (!pemMatch) return bytes;
+
+  const base64 = pemMatch[1].replace(/\s+/g, '');
+  if (!base64) throw new Error('Certificate PEM did not contain base64 data.');
+  return base64ToBytes(base64);
+}
+
+async function certificateMatchesKeyMaterial(keyMaterial: KeyMaterial, certificatePublicKeyDer: Uint8Array): Promise<boolean> {
+  if (keyMaterial.publicKeyDer) return bytesEqual(keyMaterial.publicKeyDer, certificatePublicKeyDer);
+  if (!keyMaterial.privateKeyDer) throw new Error('PrivateKey item is required before adding a certificate.');
+
+  const info = recognizeKeyMaterial(keyMaterial);
+  if (!info.canSign) throw new Error(`${info.label} cannot be checked against a certificate.`);
+
+  return verifyPrivateKeyMatchesPublicKey(keyMaterial.privateKeyDer, certificatePublicKeyDer, info);
+}
+
+async function verifyPrivateKeyMatchesPublicKey(privateKeyDer: Uint8Array, publicKeyDer: Uint8Array, info: RecognizedKeyInfo): Promise<boolean> {
+  try {
+    const data = new TextEncoder().encode('Private Key Gadgets certificate check');
+    const algorithm = getKeyPairCheckAlgorithm(info);
+    const [privateKey, publicKey] = await Promise.all([
+      crypto.subtle.importKey('pkcs8', toArrayBuffer(privateKeyDer), algorithm.importAlgorithm, false, ['sign']),
+      crypto.subtle.importKey('spki', toArrayBuffer(publicKeyDer), algorithm.importAlgorithm, false, ['verify'])
+    ]);
+    const signature = await crypto.subtle.sign(algorithm.signAlgorithm, privateKey, data);
+    return crypto.subtle.verify(algorithm.signAlgorithm, publicKey, signature, data);
+  } catch {
+    return false;
+  }
+}
+
+function getKeyPairCheckAlgorithm(info: RecognizedKeyInfo): { importAlgorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams; signAlgorithm: AlgorithmIdentifier | EcdsaParams } {
+  if (info.family === 'RSA') {
+    const algorithm = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+    return { importAlgorithm: algorithm, signAlgorithm: algorithm };
+  }
+
+  if (info.family === 'EC' && info.namedCurve) {
+    return { importAlgorithm: { name: 'ECDSA', namedCurve: info.namedCurve }, signAlgorithm: { name: 'ECDSA', hash: 'SHA-256' } };
+  }
+
+  if (info.family === 'Ed25519' || info.family === 'Ed448') {
+    const algorithm = { name: info.family };
+    return { importAlgorithm: algorithm, signAlgorithm: algorithm };
+  }
+
+  throw new Error(`${info.label} cannot be checked against a certificate.`);
+}
+
+function requestSaveKeySelection(): Promise<string[] | null> {
+  renderSaveKeySelectionList();
+  saveKeySelectionError.hidden = true;
+  saveKeySelectionError.textContent = '';
+  saveKeySelectionDialog.returnValue = '';
+
+  return new Promise((resolve) => {
+    saveKeySelectionDialog.addEventListener(
+      'close',
+      () => {
+        if (saveKeySelectionDialog.returnValue !== 'next') {
+          resolve(null);
+          return;
+        }
+
+        const selectedKeyIds = [...saveKeyList.querySelectorAll<HTMLInputElement>('input[name="save-key"]:checked')].map((input) => input.value);
+        resolve(selectedKeyIds.length > 0 ? selectedKeyIds : null);
+      },
+      { once: true }
+    );
+
+    saveKeySelectionDialog.showModal();
+    saveKeyList.querySelector<HTMLInputElement>('input[name="save-key"]:not(:disabled)')?.focus();
+  });
+}
+
+function renderSaveKeySelectionList(): void {
+  const selectedKeyId = selectedNode?.keyId;
+  const saveableKeys = keyMaterials.filter((material) => material.privateKeyDer);
+
+  if (keyMaterials.length === 0) {
+    saveKeyList.innerHTML = '<p class="checkbox-list-empty">No key pair is available.</p>';
+    saveKeySelectionNextButton.disabled = true;
+    return;
+  }
+
+  saveKeyList.innerHTML = keyMaterials.map((material) => {
+    const disabled = material.privateKeyDer ? '' : ' disabled';
+    const checked = material.id === selectedKeyId && material.privateKeyDer ? ' checked' : '';
+    const label = material.label || getDefaultKeyLabel(material);
+    const note = material.privateKeyDer ? getSaveKeyNote(material) : 'No PrivateKey item';
+    return `
+      <label class="checkbox-list-item">
+        <input type="checkbox" name="save-key" value="${escapeHtml(material.id)}"${checked}${disabled} />
+        <span>
+          <strong>${escapeHtml(label)}</strong>
+          <small>${escapeHtml(note)}</small>
+        </span>
+      </label>
+    `;
+  }).join('');
+
+  if (saveableKeys.length === 1 && !saveKeyList.querySelector<HTMLInputElement>('input[name="save-key"]:checked')) {
+    saveKeyList.querySelector<HTMLInputElement>('input[name="save-key"]:not(:disabled)')!.checked = true;
+  }
+
+  updateSaveKeySelectionState();
+}
+
+function updateSaveKeySelectionState(): void {
+  const selectedCount = saveKeyList.querySelectorAll<HTMLInputElement>('input[name="save-key"]:checked').length;
+  saveKeySelectionNextButton.disabled = selectedCount === 0;
+  saveKeySelectionError.textContent = selectedCount === 0 ? 'Select at least one key pair.' : '';
+  saveKeySelectionError.hidden = selectedCount !== 0;
+}
+
+function requestPkcs12Password(title: string, action: { value: string; label: string }): Promise<string | null> {
+  pkcs12PasswordTitle.textContent = title;
   pkcs12PasswordInput.value = '';
   pkcs12PasswordDialog.returnValue = '';
+  pkcs12PasswordSubmitButton.value = action.value;
+  pkcs12PasswordSubmitButton.textContent = action.label;
 
   return new Promise((resolve) => {
     pkcs12PasswordDialog.addEventListener(
       'close',
       () => {
-        resolve(pkcs12PasswordDialog.returnValue === 'open' ? pkcs12PasswordInput.value : null);
+        resolve(pkcs12PasswordDialog.returnValue === action.value ? pkcs12PasswordInput.value : null);
       },
       { once: true }
     );
@@ -453,9 +789,37 @@ function requestPkcs12Password(fileName: string): Promise<string | null> {
   });
 }
 
-function requestCsrOptions(): Promise<{ subjectDn: string; hashAlgorithm: string } | null> {
-  csrSubjectInput.value = 'CN=example.com, O=Example, C=JP';
+async function saveBytesToFile(bytes: Uint8Array, fileName: string): Promise<void> {
+  const blob = new Blob([toArrayBuffer(bytes)], { type: 'application/x-pkcs12' });
+
+  if (window.showSaveFilePicker) {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: fileName,
+      types: [{ description: 'PKCS#12 files', accept: { 'application/x-pkcs12': ['.p12', '.pfx'] } }]
+    });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function requestCsrOptions(keyId: string): Promise<{ subjectDn: string; subjectBytes: Uint8Array; hashAlgorithm: string } | null> {
+  const subjectSource = getCsrSubjectDnSource(keyId);
+  csrSubjectInput.value = subjectSource.subjectDn;
   csrHashSelect.innerHTML = CSR_HASH_ALGORITHMS.map((hash) => `<option value="${hash}">${hash}</option>`).join('');
+  csrHashSelect.disabled = !subjectSource.subjectBytes;
+  csrSubjectError.textContent = subjectSource.error ?? '';
+  csrSubjectError.hidden = !subjectSource.error;
+  const createButton = csrDialog.querySelector<HTMLButtonElement>('button[value="create"]');
+  if (createButton) createButton.disabled = !subjectSource.subjectBytes;
   csrDialog.returnValue = '';
 
   return new Promise((resolve) => {
@@ -467,14 +831,19 @@ function requestCsrOptions(): Promise<{ subjectDn: string; hashAlgorithm: string
           return;
         }
 
-        resolve({ subjectDn: csrSubjectInput.value.trim(), hashAlgorithm: csrHashSelect.value });
+        if (!subjectSource.subjectBytes) {
+          resolve(null);
+          return;
+        }
+
+        resolve({ subjectDn: subjectSource.subjectDn, subjectBytes: subjectSource.subjectBytes, hashAlgorithm: csrHashSelect.value });
       },
       { once: true }
     );
 
     csrDialog.showModal();
-    csrSubjectInput.focus();
-    csrSubjectInput.select();
+    if (subjectSource.subjectBytes) csrHashSelect.focus();
+    else csrDialog.querySelector<HTMLButtonElement>('button[value="cancel"]')?.focus();
   });
 }
 
@@ -497,7 +866,7 @@ function requestSubjectDn(): Promise<string | null> {
   });
 }
 
-async function createCsr(keyId: string, subjectDn: string, hashAlgorithm: string): Promise<void> {
+async function createCsr(keyId: string, subjectDn: string, subjectBytes: Uint8Array, hashAlgorithm: string): Promise<void> {
   const keyMaterial = keyMaterials.find((material) => material.id === keyId);
   if (!keyMaterial) return;
 
@@ -507,33 +876,36 @@ async function createCsr(keyId: string, subjectDn: string, hashAlgorithm: string
   try {
     const info = recognizeKeyMaterial(keyMaterial);
     if (info.family !== 'RSA' && info.family !== 'EC') throw new Error(`${info.label} is not supported for CSR signing yet.`);
+    if (!keyMaterial.privateKeyDer || !keyMaterial.publicKeyDer) throw new Error('PrivateKey and PublicKey are required to create a CSR.');
 
-    const subject = parseSubjectDn(subjectDn);
+    const subject = parseSubjectDnBytes(subjectBytes);
     const [privateKey, publicKey] = await Promise.all([
       importSigningPrivateKey(keyMaterial.privateKeyDer, info, hashAlgorithm),
       importSigningPublicKey(keyMaterial.publicKeyDer, info, hashAlgorithm)
     ]);
 
     const request = new CertificationRequest();
-    request.subject.typesAndValues.push(...subject);
+    request.subject = subject;
     await request.subjectPublicKeyInfo.importKey(publicKey);
     request.attributes = [];
     await request.sign(privateKey, hashAlgorithm);
 
+    const existing = keyMaterial.csrs?.[0];
+    if (existing && !window.confirm('CSR item already exists. Overwrite it?')) return;
+
     const csr: CsrMaterial = {
-      id: createKeyId(),
+      id: existing?.id ?? createKeyId(),
       label: 'CSR',
       subjectDn,
       hashAlgorithm,
       bytes: new Uint8Array(request.toSchema(true).toBER(false))
     };
 
-    keyMaterial.csrs ||= [];
-    keyMaterial.csrs.push(csr);
+    keyMaterial.csrs = [csr];
     selectedNode = { keyId: keyMaterial.id, kind: 'csr', csrId: csr.id };
     renderKeyTree();
     showSelectedNode();
-    setNotice(`Created CSR for ${subjectDn}.`);
+    setNotice(`${existing ? 'Updated' : 'Created'} CSR for ${subjectDn}.`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
   } finally {
@@ -546,27 +918,112 @@ function createSubjectDn(keyId: string, subjectDn: string): void {
   if (!keyMaterial) return;
 
   try {
-    const item: SubjectDnMaterial = {
-      id: createKeyId(),
-      label: 'SubjectDN',
-      subjectDn,
-      bytes: createSubjectDnBytes(subjectDn)
-    };
-
-    keyMaterial.subjectDns ||= [];
-    keyMaterial.subjectDns.push(item);
-    selectedNode = { keyId: keyMaterial.id, kind: 'subjectdn', subjectDnId: item.id };
-    renderKeyTree();
-    showSelectedNode();
-    setNotice(`Created SubjectDN for ${subjectDn}.`);
+    const overwritten = upsertSubjectDn(keyMaterial, subjectDn, createSubjectDnBytes(subjectDn));
+    if (overwritten === null) return;
+    setNotice(`${overwritten ? 'Updated' : 'Created'} SubjectDN for ${subjectDn}.`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
   }
 }
 
+function createSubjectDnFromCertificate(keyId: string): void {
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  if (!keyMaterial?.certificateDer) return;
+
+  try {
+    const subjectBytes = getCertificateSubjectDnBytes(keyMaterial.certificateDer);
+    const subjectDn = subjectDnBytesToLdapString(subjectBytes);
+    const overwritten = upsertSubjectDn(keyMaterial, subjectDn, subjectBytes);
+    if (overwritten === null) return;
+    setNotice(`${overwritten ? 'Updated' : 'Created'} SubjectDN from certificate subject.`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
+function upsertSubjectDn(keyMaterial: KeyMaterial, subjectDn: string, bytes: Uint8Array): boolean | null {
+  const existing = keyMaterial.subjectDns?.[0];
+  if (existing && !window.confirm('SubjectDN item already exists. Overwrite it?')) return null;
+
+  const item: SubjectDnMaterial = {
+    id: existing?.id ?? createKeyId(),
+    label: 'SubjectDN',
+    subjectDn,
+    bytes
+  };
+
+  keyMaterial.subjectDns = [item];
+  selectedNode = { keyId: keyMaterial.id, kind: 'subjectdn', subjectDnId: item.id };
+  renderKeyTree();
+  showSelectedNode();
+  return Boolean(existing);
+}
+
 function createSubjectDnBytes(subjectDn: string): Uint8Array {
   const subject = new RelativeDistinguishedNames({ typesAndValues: parseSubjectDn(subjectDn) });
   return new Uint8Array(subject.toSchema().toBER(false));
+}
+
+function getCertificateSubjectDnBytes(certificateDer: Uint8Array): Uint8Array {
+  const certificate = Certificate.fromBER(toArrayBuffer(certificateDer));
+  return new Uint8Array(certificate.subject.toSchema().toBER(false));
+}
+
+function getCsrSubjectDnSource(keyId: string): { subjectDn: string; subjectBytes?: Uint8Array; error?: string } {
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  const subjectDn = keyMaterial?.subjectDns?.at(-1);
+  if (!subjectDn) {
+    return { subjectDn: '(SubjectDN item is missing)', error: 'SubjectDN item is required before creating a CSR.' };
+  }
+
+  try {
+    return { subjectDn: subjectDnBytesToLdapString(subjectDn.bytes), subjectBytes: new Uint8Array(subjectDn.bytes) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { subjectDn: '(Invalid SubjectDN item)', error: `SubjectDN item could not be decoded: ${message}` };
+  }
+}
+
+function parseSubjectDnBytes(bytes: Uint8Array): RelativeDistinguishedNames {
+  const asn1 = asn1js.fromBER(toArrayBuffer(bytes));
+  if (asn1.offset === -1) throw new Error('Invalid SubjectDN DER.');
+  if (asn1.offset !== bytes.byteLength) throw new Error('SubjectDN DER has trailing data.');
+  return new RelativeDistinguishedNames({ schema: asn1.result });
+}
+
+function subjectDnBytesToLdapString(bytes: Uint8Array): string {
+  const subject = parseSubjectDnBytes(bytes);
+  if (subject.typesAndValues.length === 0) throw new Error('SubjectDN has no attributes.');
+  return [...subject.typesAndValues].reverse().map(formatSubjectAttribute).join(', ');
+}
+
+function formatSubjectAttribute(attribute: AttributeTypeAndValue): string {
+  return `${subjectName(attribute.type)}=${escapeDnText(readSubjectAttributeValue(attribute.value))}`;
+}
+
+function subjectName(oid: string): string {
+  const names: Record<string, string> = {
+    '2.5.4.6': 'C',
+    '2.5.4.8': 'ST',
+    '2.5.4.7': 'L',
+    '2.5.4.10': 'O',
+    '2.5.4.11': 'OU',
+    '2.5.4.3': 'CN',
+    '0.9.2342.19200300.100.1.25': 'DC',
+    '2.5.4.5': 'serialNumber',
+    '1.2.840.113549.1.9.1': 'emailAddress'
+  };
+  return names[oid] ?? oid;
+}
+
+function readSubjectAttributeValue(value: { valueBlock: unknown; toString: () => string }): string {
+  const valueBlock = value.valueBlock as { value?: unknown };
+  if (typeof valueBlock.value === 'string') return valueBlock.value;
+  return value.toString();
+}
+
+function escapeDnText(value: string): string {
+  return value.replace(/[\\,=\/]/g, (character) => `\\${character}`);
 }
 
 function listenForViewerChanges(instance: PkiStudioInstance): void {
@@ -588,6 +1045,106 @@ function updateSelectedSubjectDnBytes(bytes: Uint8Array): void {
   subjectDn.bytes = new Uint8Array(bytes);
   renderKeyTree();
   setNotice(`Updated ${subjectDn.label} from viewer edits.`);
+}
+
+function deleteKeyPair(keyId: string): void {
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  if (!keyMaterial) return;
+  if (!window.confirm(`Delete ${keyMaterial.label || getDefaultKeyLabel(keyMaterial)} and all child items?`)) return;
+
+  keyMaterials = keyMaterials.filter((material) => material.id !== keyId);
+  selectedNode = keyMaterials[0] ? getFirstSelectableNode(keyMaterials[0]) : null;
+  renderKeyTree();
+  saveKeyButton.disabled = keyMaterials.length === 0;
+  if (selectedNode) showSelectedNode();
+  else viewer?.close?.();
+  setNotice(`Deleted ${keyMaterial.label || 'KeyPair'}.`);
+}
+
+function deleteChildNode(target: SelectedKeyNode): void {
+  const keyMaterial = keyMaterials.find((material) => material.id === target.keyId);
+  if (!keyMaterial) return;
+  if (!window.confirm(`Delete ${getDeleteLabel(keyMaterial, target)}?`)) return;
+
+  if (target.kind === 'private') keyMaterial.privateKeyDer = undefined;
+  if (target.kind === 'public') keyMaterial.publicKeyDer = undefined;
+  if (target.kind === 'certificate') keyMaterial.certificateDer = undefined;
+  if (target.kind === 'subjectdn') keyMaterial.subjectDns = (keyMaterial.subjectDns ?? []).filter((item) => item.id !== target.subjectDnId);
+  if (target.kind === 'csr') keyMaterial.csrs = (keyMaterial.csrs ?? []).filter((item) => item.id !== target.csrId);
+
+  selectedNode = getFirstSelectableNode(keyMaterial);
+  renderKeyTree();
+  if (selectedNode) showSelectedNode();
+  else viewer?.close?.();
+  setNotice(`Deleted ${getDeleteLabel(keyMaterial, target)}.`);
+}
+
+async function copyCsrAsPem(target: SelectedKeyNode): Promise<void> {
+  const keyMaterial = keyMaterials.find((material) => material.id === target.keyId);
+  const csr = keyMaterial?.csrs?.find((item) => item.id === target.csrId);
+  if (!csr) return;
+
+  try {
+    await writeTextToClipboard(derToPem('CERTIFICATE REQUEST', csr.bytes));
+    setNotice(`Copied ${csr.label} as PEM.`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
+async function writeTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('Could not copy CSR PEM to the clipboard.');
+}
+
+function derToPem(label: string, bytes: Uint8Array): string {
+  const base64 = bytesToBase64(bytes);
+  const lines = base64.match(/.{1,64}/g) ?? [];
+  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function getFirstSelectableNode(keyMaterial: KeyMaterial): SelectedKeyNode | null {
+  if (keyMaterial.subjectDns?.[0]) return { keyId: keyMaterial.id, kind: 'subjectdn', subjectDnId: keyMaterial.subjectDns[0].id };
+  if (keyMaterial.privateKeyDer) return { keyId: keyMaterial.id, kind: 'private' };
+  if (keyMaterial.publicKeyDer && !keyMaterial.certificateDer) return { keyId: keyMaterial.id, kind: 'public' };
+  if (keyMaterial.certificateDer) return { keyId: keyMaterial.id, kind: 'certificate' };
+  if (keyMaterial.csrs?.[0]) return { keyId: keyMaterial.id, kind: 'csr', csrId: keyMaterial.csrs[0].id };
+  return null;
+}
+
+function getDeleteLabel(keyMaterial: KeyMaterial, target: SelectedKeyNode): string {
+  if (target.kind === 'subjectdn') return 'SubjectDN';
+  if (target.kind === 'csr') return 'CSR';
+  if (target.kind === 'private') return 'PrivateKey';
+  if (target.kind === 'public') return 'PublicKey';
+  if (target.kind === 'certificate') return 'Certificate';
+  return keyMaterial.label || 'item';
 }
 
 function getGenerationOptions(selection: string): SupportedKeyAlgorithm {
@@ -612,7 +1169,7 @@ function showBytes(bytes: Uint8Array, notice: string): void {
 function addKeyMaterial(keyMaterial: KeyMaterial): void {
   keyMaterial.label ||= getDefaultKeyLabel(keyMaterial);
   keyMaterials.push(keyMaterial);
-  selectedNode = { keyId: keyMaterial.id, kind: 'private' };
+  selectedNode = getFirstSelectableNode(keyMaterial);
   renderKeyTree();
   showSelectedNode();
 }
@@ -664,12 +1221,11 @@ function renderKeyTree(): void {
         <span class="tree-toggle" aria-hidden="true">−</span>
         <button class="tree-icon-button" type="button" data-keypair-menu data-key-id="${escapeHtml(keyMaterial.id)}" aria-label="KeyPair actions"><span class="tree-icon folder" aria-hidden="true"></span></button>
         <span class="tree-tag key-label" data-key-label data-key-id="${escapeHtml(keyMaterial.id)}" contenteditable="true" spellcheck="false">${escapeHtml(keyMaterial.label || info.label)}</span>
-        <span class="tree-pill">KeyPair</span>
       </summary>
       <div class="tree-children">
         ${(keyMaterial.subjectDns ?? []).map((subjectDn) => renderSubjectDnNode(keyMaterial, subjectDn)).join('')}
-        ${renderMaterialNode(keyMaterial, 'private', 'PrivateKey', keyMaterial.privateKeyDer, info.label)}
-        ${keyMaterial.certificateDer ? '' : renderMaterialNode(keyMaterial, 'public', 'PublicKey', keyMaterial.publicKeyDer, info.label)}
+        ${keyMaterial.privateKeyDer ? renderMaterialNode(keyMaterial, 'private', 'PrivateKey', keyMaterial.privateKeyDer, info.label) : ''}
+        ${keyMaterial.publicKeyDer ? renderMaterialNode(keyMaterial, 'public', 'PublicKey', keyMaterial.publicKeyDer, info.label) : ''}
         ${keyMaterial.certificateDer ? renderMaterialNode(keyMaterial, 'certificate', 'Certificate', keyMaterial.certificateDer) : ''}
         ${(keyMaterial.csrs ?? []).map((csr) => renderCsrNode(keyMaterial, csr)).join('')}
       </div>
@@ -683,7 +1239,7 @@ function renderSubjectDnNode(keyMaterial: KeyMaterial, subjectDn: SubjectDnMater
   const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === 'subjectdn' && selectedNode.subjectDnId === subjectDn.id;
   return `
     <div class="tree-row${selected ? ' selected' : ''}">
-      <span class="tree-icon leaf" aria-hidden="true"></span>
+      <button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="subjectdn" data-subject-dn-id="${escapeHtml(subjectDn.id)}" aria-label="SubjectDN actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>
       <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="subjectdn" data-subject-dn-id="${escapeHtml(subjectDn.id)}" aria-pressed="${selected}">
         <span class="tree-tag">${escapeHtml(subjectDn.label)} (${subjectDn.bytes.byteLength})</span>
       </button>
@@ -697,7 +1253,9 @@ function renderMaterialNode(keyMaterial: KeyMaterial, kind: KeyNodeKind, label: 
   const menuButton =
     kind === 'private'
       ? `<button class="tree-icon-button" type="button" data-private-menu data-key-id="${escapeHtml(keyMaterial.id)}" aria-label="PrivateKey actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`
-      : '<span class="tree-icon leaf" aria-hidden="true"></span>';
+      : kind === 'certificate'
+        ? `<button class="tree-icon-button" type="button" data-certificate-menu data-key-id="${escapeHtml(keyMaterial.id)}" aria-label="Certificate actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`
+        : `<button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="${kind}" aria-label="${label} actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`;
   return `
     <div class="tree-row${selected ? ' selected' : ''}">
       ${menuButton}
@@ -712,7 +1270,7 @@ function renderCsrNode(keyMaterial: KeyMaterial, csr: CsrMaterial): string {
   const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === 'csr' && selectedNode.csrId === csr.id;
   return `
     <div class="tree-row${selected ? ' selected' : ''}">
-      <span class="tree-icon leaf" aria-hidden="true"></span>
+      <button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="csr" data-csr-id="${escapeHtml(csr.id)}" aria-label="CSR actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>
       <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="csr" data-csr-id="${escapeHtml(csr.id)}" aria-pressed="${selected}">
         <span class="tree-tag">${escapeHtml(csr.label)} (${csr.bytes.byteLength}) // ${escapeHtml(csr.hashAlgorithm)}</span>
       </button>
@@ -723,12 +1281,33 @@ function renderCsrNode(keyMaterial: KeyMaterial, csr: CsrMaterial): string {
 function renameKeyMaterial(keyId: string, label: string): void {
   const keyMaterial = keyMaterials.find((material) => material.id === keyId);
   if (!keyMaterial) return;
-  keyMaterial.label = label.trim() || getDefaultKeyLabel(keyMaterial);
+
+  const trimmedLabel = label.trim();
+  if (!trimmedLabel) {
+    setNotice('Key pair label cannot be empty.', true);
+    renderKeyTree();
+    return;
+  }
+
+  keyMaterial.label = trimmedLabel;
   renderKeyTree();
+  setNotice(`Renamed key pair to ${trimmedLabel}.`);
 }
 
 function getDefaultKeyLabel(keyMaterial: Pick<KeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): string {
-  return recognizeKeyMaterial({ id: '', privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer }).label;
+  return recognizeKeyMaterial({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer }).label;
+}
+
+function getPkcs12FileName(keys: KeyMaterial[]): string {
+  if (keys.length !== 1) return 'private-key-gadgets.p12';
+  const label = keys[0].label || getDefaultKeyLabel(keys[0]);
+  return `${label.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'keypair'}.p12`;
+}
+
+function getSaveKeyNote(keyMaterial: KeyMaterial): string {
+  const info = recognizeKeyMaterial(keyMaterial);
+  const certificate = keyMaterial.certificateDer ? ', Certificate' : '';
+  return `${info.label}, PrivateKey${certificate}`;
 }
 
 function getSelectedNodeBytes(keyMaterial: KeyMaterial, selected: SelectedKeyNode): Uint8Array | undefined {
@@ -764,6 +1343,7 @@ function getSelectedNodeLabel(keyMaterial: KeyMaterial, selected: SelectedKeyNod
 function setBusy(busy: boolean): void {
   newKeyButton.disabled = busy || supportedAlgorithms.length === 0;
   openKeyButton.disabled = busy;
+  saveKeyButton.disabled = busy || keyMaterials.length === 0;
   for (const button of algorithmMenu.querySelectorAll<HTMLButtonElement>('button')) button.disabled = busy;
   if (busy) setAlgorithmMenuOpen(false);
 }
@@ -781,10 +1361,12 @@ function setPrivateKeyMenuOpen(open: boolean, keyId?: string, anchor?: HTMLEleme
   }
 
   setKeyPairMenuOpen(false);
+  setCertificateMenuOpen(false);
+  setChildItemMenuOpen(false);
   privateKeyMenuKeyId = keyId;
   const keyMaterial = keyMaterials.find((material) => material.id === keyId);
   const info = keyMaterial ? recognizeKeyMaterial(keyMaterial) : null;
-  const supported = info?.family === 'RSA' || info?.family === 'EC';
+  const supported = Boolean(keyMaterial?.privateKeyDer && keyMaterial.publicKeyDer && (info?.family === 'RSA' || info?.family === 'EC'));
   newCsrMenuItem.disabled = !supported;
   newCsrMenuItem.title = supported ? '' : 'CSR creation currently supports RSA and EC signing keys.';
 
@@ -802,11 +1384,59 @@ function setKeyPairMenuOpen(open: boolean, keyId?: string, anchor?: HTMLElement)
   }
 
   setPrivateKeyMenuOpen(false);
+  setCertificateMenuOpen(false);
+  setChildItemMenuOpen(false);
   keyPairMenuKeyId = keyId;
   const rect = anchor.getBoundingClientRect();
   keyPairMenu.style.left = `${rect.left}px`;
   keyPairMenu.style.top = `${rect.bottom + 2}px`;
   keyPairMenu.hidden = false;
+}
+
+function setCertificateMenuOpen(open: boolean, keyId?: string, anchor?: HTMLElement): void {
+  if (!open || !keyId || !anchor) {
+    certificateMenu.hidden = true;
+    certificateMenuKeyId = null;
+    return;
+  }
+
+  setPrivateKeyMenuOpen(false);
+  setKeyPairMenuOpen(false);
+  setChildItemMenuOpen(false);
+  certificateMenuKeyId = keyId;
+  const rect = anchor.getBoundingClientRect();
+  certificateMenu.style.left = `${rect.left}px`;
+  certificateMenu.style.top = `${rect.bottom + 2}px`;
+  certificateMenu.hidden = false;
+}
+
+function setChildItemMenuOpen(open: boolean, target?: SelectedKeyNode, anchor?: HTMLElement): void {
+  if (!open || !target || !anchor) {
+    childItemMenu.hidden = true;
+    childItemMenuTarget = null;
+    return;
+  }
+
+  setPrivateKeyMenuOpen(false);
+  setKeyPairMenuOpen(false);
+  setCertificateMenuOpen(false);
+  childItemMenuTarget = target;
+  copyCsrPemMenuItem.hidden = target.kind !== 'csr';
+  const rect = anchor.getBoundingClientRect();
+  childItemMenu.style.left = `${rect.left}px`;
+  childItemMenu.style.top = `${rect.bottom + 2}px`;
+  childItemMenu.hidden = false;
+}
+
+function isChildItemMenuTarget(button: HTMLButtonElement): boolean {
+  const target = childItemMenuTarget;
+  return Boolean(
+    target &&
+      target.keyId === button.dataset.keyId &&
+      target.kind === button.dataset.keyNode &&
+      target.csrId === button.dataset.csrId &&
+      target.subjectDnId === button.dataset.subjectDnId
+  );
 }
 
 async function importSigningPrivateKey(bytes: Uint8Array, info: RecognizedKeyInfo, hashAlgorithm: string): Promise<CryptoKey> {
@@ -1005,8 +1635,9 @@ function createNamedCurveCandidates(name: string, curves: string[], usages: KeyU
   }));
 }
 
-function recognizeKeyMaterial(material: KeyMaterial): RecognizedKeyInfo {
-  return recognizePublicKey(material.publicKeyDer) || recognizePrivateKey(material.privateKeyDer);
+function recognizeKeyMaterial(material: Pick<KeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): RecognizedKeyInfo {
+  return (material.publicKeyDer ? recognizePublicKey(material.publicKeyDer) : null) ||
+    (material.privateKeyDer ? recognizePrivateKey(material.privateKeyDer) : createRecognizedKeyInfo('Unknown', 'Unknown'));
 }
 
 function recognizePublicKey(bytes: Uint8Array): RecognizedKeyInfo | null {

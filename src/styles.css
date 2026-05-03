@@ -391,6 +391,10 @@ button:disabled {
   box-shadow: 0 16px 32px rgba(15, 23, 42, 0.22);
 }
 
+.save-key-dialog {
+  width: min(460px, calc(100% - 32px));
+}
+
 .password-dialog::backdrop {
   background: rgba(15, 23, 42, 0.2);
 }
@@ -428,6 +432,69 @@ button:disabled {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.checkbox-list {
+  display: grid;
+  gap: 4px;
+  max-height: min(320px, 48vh);
+  overflow: auto;
+  border: 1px solid #c5ccd6;
+  border-radius: 3px;
+  padding: 5px;
+  background: #fff;
+}
+
+.checkbox-list-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 6px;
+}
+
+.checkbox-list-item:hover,
+.checkbox-list-item:focus-within {
+  border-color: #9dbce5;
+  background: #eaf3ff;
+}
+
+.checkbox-list-item input {
+  margin-top: 2px;
+}
+
+.checkbox-list-item span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.checkbox-list-item strong,
+.checkbox-list-item small {
+  overflow-wrap: anywhere;
+}
+
+.checkbox-list-item small,
+.checkbox-list-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.checkbox-list-empty {
+  margin: 0;
+  padding: 8px;
+}
+
+.dialog-error {
+  border: 1px solid #e7a4a4;
+  border-radius: 3px;
+  padding: 7px;
+  color: var(--danger);
+  background: #fff5f5;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .viewer-panel {

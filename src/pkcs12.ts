@@ -1,5 +1,7 @@
 import * as asn1js from 'asn1js';
 import {
+  Attribute,
+  AuthenticatedSafe,
   CertBag,
   Certificate,
   PFX,
@@ -14,9 +16,15 @@ export type Pkcs12KeyMaterial = {
   id: string;
   label?: string;
   privateKeyDer: Uint8Array;
-  publicKeyDer: Uint8Array;
+  publicKeyDer?: Uint8Array;
   certificateDer?: Uint8Array;
   sourceName?: string;
+};
+
+export type Pkcs12ExportKeyMaterial = {
+  label?: string;
+  privateKeyDer?: Uint8Array;
+  certificateDer?: Uint8Array;
 };
 
 const OID_PKCS12_KEY_BAG = '1.2.840.113549.1.12.10.1.1';
@@ -70,9 +78,6 @@ export async function readPkcs12Keys(
   }
 
   if (privateKeys.length === 0) throw new Error('No private key was found in the PKCS#12 file.');
-  if (certificates.length === 0) {
-    throw new Error('No X.509 certificate was found in the PKCS#12 file, so a public key item could not be created.');
-  }
 
   return privateKeys.map((privateKey, index) => {
     const certificate = findMatchingCertificate(privateKey, certificates, index);
@@ -80,11 +85,68 @@ export async function readPkcs12Keys(
       id: options.createId?.() ?? crypto.randomUUID?.() ?? String(Date.now()),
       label: privateKey.friendlyName || privateKey.localKeyId || undefined,
       privateKeyDer: toDer(privateKey.privateKeyInfo),
-      publicKeyDer: toDer(certificate.subjectPublicKeyInfo),
-      certificateDer: toDer(certificate),
+      publicKeyDer: certificate ? toDer(certificate.subjectPublicKeyInfo) : undefined,
+      certificateDer: certificate ? toDer(certificate) : undefined,
       sourceName: options.sourceName
     };
   });
+}
+
+export async function writePkcs12Keys(keys: Pkcs12ExportKeyMaterial[], password: string): Promise<Uint8Array> {
+  if (keys.length === 0) throw new Error('No key pair was selected.');
+
+  const passwordBuffer = new TextEncoder().encode(password).buffer;
+  const safeBags: SafeBag[] = [];
+
+  for (const key of keys) {
+    if (!key.privateKeyDer) throw new Error(`${key.label || 'Selected key pair'} does not have a PrivateKey item.`);
+
+    const localKeyId = randomBytes(20);
+    const bagAttributes = createBagAttributes(key.label, localKeyId);
+    const shroudedKeyBag = new PKCS8ShroudedKeyBag({ parsedValue: PrivateKeyInfo.fromBER(toArrayBuffer(key.privateKeyDer)) });
+    await shroudedKeyBag.makeInternalValues({
+      password: passwordBuffer,
+      contentEncryptionAlgorithm: { name: 'AES-CBC', length: 256, iv: toArrayBuffer(randomBytes(16)) },
+      hmacHashAlgorithm: 'SHA-256',
+      iterationCount: 100000
+    });
+
+    safeBags.push(new SafeBag({
+      bagId: OID_PKCS12_SHROUDED_KEY_BAG,
+      bagValue: shroudedKeyBag,
+      bagAttributes
+    }));
+
+    if (key.certificateDer) {
+      safeBags.push(new SafeBag({
+        bagId: OID_PKCS12_CERT_BAG,
+        bagValue: new CertBag({ parsedValue: Certificate.fromBER(toArrayBuffer(key.certificateDer)) }),
+        bagAttributes
+      }));
+    }
+  }
+
+  const authenticatedSafe = new AuthenticatedSafe({
+    parsedValue: {
+      safeContents: [{ privacyMode: 0, value: new SafeContents({ safeBags }) }]
+    }
+  });
+  await authenticatedSafe.makeInternalValues({ safeContents: [{}] });
+
+  const pfx = new PFX({
+    parsedValue: {
+      integrityMode: 0,
+      authenticatedSafe
+    }
+  });
+  await pfx.makeInternalValues({
+    password: passwordBuffer,
+    iterations: 100000,
+    pbkdf2HashAlgorithm: { name: 'SHA-256' },
+    hmacHashAlgorithm: 'SHA-256'
+  });
+
+  return new Uint8Array(pfx.toSchema().toBER(false));
 }
 
 type IndexedPrivateKey = {
@@ -130,7 +192,9 @@ function findMatchingCertificate(
   privateKey: IndexedPrivateKey,
   certificates: IndexedCertificate[],
   fallbackIndex: number
-): Certificate {
+): Certificate | undefined {
+  if (certificates.length === 0) return undefined;
+
   if (privateKey.localKeyId) {
     const match = certificates.find((certificate) => certificate.localKeyId === privateKey.localKeyId);
     if (match) return match.certificate;
@@ -151,6 +215,24 @@ function getFriendlyName(bag: SafeBag): string | null {
   const [value] = friendlyName?.values ?? [];
   if (value instanceof asn1js.BmpString || value instanceof asn1js.Utf8String) return value.valueBlock.value;
   return null;
+}
+
+function createBagAttributes(label: string | undefined, localKeyId: Uint8Array): Attribute[] {
+  const attributes = [
+    new Attribute({ type: OID_LOCAL_KEY_ID, values: [new asn1js.OctetString({ valueHex: toArrayBuffer(localKeyId) })] })
+  ];
+
+  if (label) {
+    attributes.unshift(new Attribute({ type: OID_FRIENDLY_NAME, values: [new asn1js.BmpString({ value: label })] }));
+  }
+
+  return attributes;
+}
+
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
 }
 
 function toDer(value: { toSchema: () => { toBER: (sizeOnly?: boolean) => ArrayBuffer } }): Uint8Array {
