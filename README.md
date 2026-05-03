@@ -27,8 +27,9 @@ Private Key Gadgets is an experimental browser tool for generating and inspectin
 
 ### Certificate Management
 
-- Adds a Certificate child item from the top-level key pair menu through add Certificate.
-- Reads certificate files selected from the browser file picker, including DER certificates and PEM files with a `-----BEGIN CERTIFICATE-----` block.
+- Adds a Certificate child item from the top-level key pair menu through Load Certificate.
+- Loads certificates from files through Load Certificate > from File, including DER certificates and PEM files with a `-----BEGIN CERTIFICATE-----` block.
+- Loads certificates from the clipboard through Load Certificate > from Clipboard as PEM and Load Certificate > from Clipboard as HEX.
 - Checks the certificate public key against the key pair before adding it.
 - Compares the certificate public key with an existing PublicKey item when one is present.
 - When no PublicKey item is present, checks the certificate against the PrivateKey by signing and verifying test data for supported signing keys.
@@ -37,6 +38,11 @@ Private Key Gadgets is an experimental browser tool for generating and inspectin
 - Does not create or replace a PublicKey item when a mismatching certificate is applied and no PublicKey item exists.
 - Does not hide or delete an existing PublicKey item just because a Certificate item is added.
 - Keeps only one Certificate child item per key pair; adding another certificate replaces the current Certificate item.
+- Creates a self-signed Certificate from the PrivateKey item menu when a usable SubjectDN item is present.
+- Allows SHA-256, SHA-384, and SHA-512 as self-signed certificate hash algorithm choices.
+- Allows the self-signed certificate validity span to be set in days, defaulting to 365 days.
+- Adds BasicConstraints and KeyUsage extensions to self-signed certificates; `certSign` and `crlSign` are checked by default.
+- Copies Certificate objects as PEM from the Certificate item icon menu using a `CERTIFICATE` PEM block.
 
 ### PKCS#12 Export
 
@@ -55,12 +61,13 @@ Private Key Gadgets is an experimental browser tool for generating and inspectin
 - Supports child items for SubjectDN, PrivateKey, PublicKey, Certificate, and CSR objects.
 - Opens node menus from the tree item icon, matching the interaction style used by PkiStudioJS.
 - Closes open node menus when clicking empty space in the left pane or elsewhere in the document.
-- Provides add Certificate, New SubjectDN, and Delete from the top-level key pair icon menu.
-- Provides New CSR and Delete from the PrivateKey item icon menu.
-- Provides New SubjectDN and Delete from the Certificate item icon menu.
+- Provides Load Certificate, New SubjectDN, and Delete from the top-level key pair icon menu.
+- Provides New CSR, New self-signed Cert, and Delete from the PrivateKey item icon menu.
+- Provides New SubjectDN, Copy as PEM, and Delete from the Certificate item icon menu.
 - Provides Copy as PEM for CSR items from the child item icon menu.
 - Allows child items to be deleted from their icon menu.
 - Allows top-level key pair items to be deleted from their icon menu; deleting a key pair removes all child items as well.
+- Lets the left and right panes be resized with the splitter between them.
 
 ### SubjectDN Objects
 
@@ -82,13 +89,34 @@ Private Key Gadgets is an experimental browser tool for generating and inspectin
 - Displays generated CSR DER in the embedded ASN.1 viewer.
 - Copies CSR objects as PEM from the CSR item icon menu using a `CERTIFICATE REQUEST` PEM block.
 
+### Self-Signed Certificate Generation
+
+- Creates a self-signed X.509 certificate from the PrivateKey item menu.
+- Requires an existing SubjectDN child item and uses its DER as both issuer and subject.
+- Supports RSA and EC signing keys for certificate generation.
+- Allows SHA-256, SHA-384, and SHA-512 as signing hash algorithm choices.
+- Allows KeyUsage flags to be selected before signing; `certSign` and `crlSign` are selected by default.
+- Allows the validity span to be entered as a number of days, defaulting to 365.
+- Replaces the current Certificate child item after confirmation when one already exists.
+- Displays the generated certificate DER in the embedded ASN.1 viewer.
+
 ### Embedded ASN.1 Viewer
 
 - Embeds the vendored PkiStudioJS viewer directly in the right pane.
 - Displays the selected PrivateKey, PublicKey, Certificate, SubjectDN, or CSR DER object.
+- Keeps Viewer editing actions enabled only while a SubjectDN item is selected.
+- Disables the Viewer Load and Close actions, plus node Edit, Delete, Add, and Insert before actions, for read-only key material such as PrivateKey, PublicKey, Certificate, and CSR.
 - Keeps the PkiStudioJS Save menu available for writing the currently displayed DER document to a file.
 - Opens PkiStudioJS new-window output in a viewer-only page.
 - Hides the standalone PkiStudioJS file picker in the embedded application shell.
+
+### API Log
+
+- Shows a bottom API Log pane for browser and PKI operation activity.
+- Logs operations such as PkiStudioJS initialization, WebCrypto key generation and export, PKCS#12 import/export, certificate loading, clipboard access, file-system saves, CSR creation, and self-signed certificate signing.
+- Displays timestamps with millisecond precision.
+- Keeps the newest 200 log entries and drops older entries automatically.
+- Provides a Clear button for resetting the visible log.
 
 The application provides Save Key for exporting selected key pairs as PKCS#12 files. Individual DER objects are shown in the PkiStudioJS viewer, and users can use the viewer's Save menu when they want to write the currently displayed DER document to a file.
 
