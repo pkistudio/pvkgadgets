@@ -152,6 +152,45 @@ button:disabled {
   white-space: nowrap;
 }
 
+.node-context-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 150px;
+  border: 1px solid #8f98a3;
+  border-radius: 3px;
+  padding: 3px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+}
+
+.node-context-menu[hidden],
+.node-context-menu button[hidden] {
+  display: none;
+}
+
+.node-context-menu button {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 4px 18px 4px 8px;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.node-context-menu button:hover,
+.node-context-menu button:focus-visible {
+  outline: none;
+  border-color: #9dbce5;
+  background: #eaf3ff;
+}
+
 .tree {
   flex: 1 1 auto;
   min-height: 480px;
@@ -207,16 +246,38 @@ button:disabled {
   border-left: 1px dotted #b9b9b9;
 }
 
-.tree-item {
+.tree-row {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
   gap: 4px;
   width: 100%;
   min-height: 22px;
   border: 1px solid transparent;
   border-radius: 0;
   padding: 1px 3px;
+}
+
+.tree-row:hover,
+.tree-row:focus-within {
+  border-color: var(--selection-border, #99c7ee);
+  background: var(--selection, #cfe8ff);
+}
+
+.tree-row.selected {
+  border-color: #99c7ee;
+  background: #cfe8ff;
+}
+
+.tree-item {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: 18px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   text-align: left;
   background: transparent;
   box-shadow: none;
@@ -225,14 +286,28 @@ button:disabled {
 
 .tree-item:hover,
 .tree-item:focus-visible {
-  border-color: var(--selection-border, #99c7ee);
-  background: var(--selection, #cfe8ff);
   outline: none;
 }
 
-.tree-item.selected {
-  border-color: #99c7ee;
-  background: #cfe8ff;
+.tree-icon-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 15px;
+  height: 16px;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: context-menu;
+}
+
+.tree-icon-button:hover,
+.tree-icon-button:focus-visible {
+  outline: 1px solid var(--selection-border, #99c7ee);
+  background: #fff;
 }
 
 .tree-icon {

@@ -1,7 +1,10 @@
 import './styles.css';
+import * as asn1js from 'asn1js';
+import { AttributeTypeAndValue, CertificationRequest, RelativeDistinguishedNames } from 'pkijs';
 import { readPkcs12Keys, type Pkcs12KeyMaterial } from './pkcs12';
 
 type PkiStudioInstance = {
+  getBytes?: () => Uint8Array | null;
   loadBytes: (bytes: Uint8Array, notice?: string) => void;
   root?: DocumentFragment | Element;
 };
@@ -16,13 +19,33 @@ declare global {
   }
 }
 
-type KeyMaterial = Pkcs12KeyMaterial;
+type CsrMaterial = {
+  id: string;
+  label: string;
+  subjectDn: string;
+  hashAlgorithm: string;
+  bytes: Uint8Array;
+};
 
-type KeyNodeKind = 'private' | 'public' | 'certificate';
+type SubjectDnMaterial = {
+  id: string;
+  label: string;
+  subjectDn: string;
+  bytes: Uint8Array;
+};
+
+type KeyMaterial = Pkcs12KeyMaterial & {
+  csrs?: CsrMaterial[];
+  subjectDns?: SubjectDnMaterial[];
+};
+
+type KeyNodeKind = 'private' | 'public' | 'certificate' | 'csr' | 'subjectdn';
 
 type SelectedKeyNode = {
   keyId: string;
   kind: KeyNodeKind;
+  csrId?: string;
+  subjectDnId?: string;
 };
 
 type RecognizedKeyInfo = {
@@ -133,6 +156,12 @@ app.innerHTML = `
           <button id="openKeyButton" type="button">Open Key</button>
           <input id="openKeyInput" class="visually-hidden" type="file" accept=".p12,.pfx,application/pkcs12,application/x-pkcs12" />
         </nav>
+        <div id="privateKeyMenu" class="node-context-menu" role="menu" hidden>
+          <button id="newCsrMenuItem" type="button" role="menuitem">New CSR</button>
+        </div>
+        <div id="keyPairMenu" class="node-context-menu" role="menu" hidden>
+          <button id="newSubjectDnMenuItem" type="button" role="menuitem">New SubjectDN</button>
+        </div>
         <div id="keyTree" class="tree empty">No key generated yet.</div>
         <p id="formNotice" class="notice">Generated DER is sent to the ASN.1 viewer.</p>
       </section>
@@ -153,6 +182,36 @@ app.innerHTML = `
         </div>
       </form>
     </dialog>
+    <dialog id="csrDialog" class="password-dialog">
+      <form method="dialog" class="password-panel">
+        <h2>New CSR</h2>
+        <label class="password-field">
+          <span>subjectDN</span>
+          <input id="csrSubjectInput" type="text" autocomplete="off" placeholder="CN=example.com, O=Example, C=JP" />
+        </label>
+        <label class="password-field">
+          <span>Hash algorithm</span>
+          <select id="csrHashSelect"></select>
+        </label>
+        <div class="dialog-actions">
+          <button type="submit" value="cancel">Cancel</button>
+          <button type="submit" value="create">Create</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="subjectDnDialog" class="password-dialog">
+      <form method="dialog" class="password-panel">
+        <h2>New SubjectDN</h2>
+        <label class="password-field">
+          <span>subjectDN</span>
+          <input id="subjectDnInput" type="text" autocomplete="off" placeholder="CN=example.com, O=Example, C=JP" />
+        </label>
+        <div class="dialog-actions">
+          <button type="submit" value="cancel">Cancel</button>
+          <button type="submit" value="create">Create</button>
+        </div>
+      </form>
+    </dialog>
   </main>
 `;
 
@@ -160,16 +219,29 @@ const newKeyButton = query<HTMLButtonElement>('#newKeyButton');
 const openKeyButton = query<HTMLButtonElement>('#openKeyButton');
 const openKeyInput = query<HTMLInputElement>('#openKeyInput');
 const algorithmMenu = query<HTMLDivElement>('#algorithmMenu');
+const privateKeyMenu = query<HTMLDivElement>('#privateKeyMenu');
+const newCsrMenuItem = query<HTMLButtonElement>('#newCsrMenuItem');
+const keyPairMenu = query<HTMLDivElement>('#keyPairMenu');
+const newSubjectDnMenuItem = query<HTMLButtonElement>('#newSubjectDnMenuItem');
 const keyTree = query<HTMLElement>('#keyTree');
 const formNotice = query<HTMLElement>('#formNotice');
 const pkcs12PasswordDialog = query<HTMLDialogElement>('#pkcs12PasswordDialog');
 const pkcs12PasswordTitle = query<HTMLElement>('#pkcs12PasswordTitle');
 const pkcs12PasswordInput = query<HTMLInputElement>('#pkcs12PasswordInput');
+const csrDialog = query<HTMLDialogElement>('#csrDialog');
+const csrSubjectInput = query<HTMLInputElement>('#csrSubjectInput');
+const csrHashSelect = query<HTMLSelectElement>('#csrHashSelect');
+const subjectDnDialog = query<HTMLDialogElement>('#subjectDnDialog');
+const subjectDnInput = query<HTMLInputElement>('#subjectDnInput');
 
 let viewer: PkiStudioInstance | null = null;
 let keyMaterials: KeyMaterial[] = [];
 let selectedNode: SelectedKeyNode | null = null;
 let supportedAlgorithms: SupportedKeyAlgorithm[] = [];
+let privateKeyMenuKeyId: string | null = null;
+let keyPairMenuKeyId: string | null = null;
+
+const CSR_HASH_ALGORITHMS = ['SHA-256', 'SHA-384', 'SHA-512'];
 
 setBusy(true);
 
@@ -185,6 +257,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     newWindowUrl: '/viewer.html'
   });
   applyEmbeddedViewerStyles(viewer);
+  listenForViewerChanges(viewer);
 
   await populateSupportedAlgorithms();
 });
@@ -219,13 +292,53 @@ openKeyInput.addEventListener('change', async () => {
   await openPkcs12File(file, password);
 });
 
+newCsrMenuItem.addEventListener('click', async () => {
+  const keyId = privateKeyMenuKeyId;
+  setPrivateKeyMenuOpen(false);
+  if (!keyId) return;
+
+  const options = await requestCsrOptions();
+  if (!options) return;
+
+  await createCsr(keyId, options.subjectDn, options.hashAlgorithm);
+});
+
+newSubjectDnMenuItem.addEventListener('click', async () => {
+  const keyId = keyPairMenuKeyId;
+  setKeyPairMenuOpen(false);
+  if (!keyId) return;
+
+  const subjectDn = await requestSubjectDn();
+  if (subjectDn === null) return;
+
+  createSubjectDn(keyId, subjectDn);
+});
+
 keyTree.addEventListener('click', (event) => {
   if (event.target instanceof Element && event.target.closest('[data-key-label]')) return;
+
+  const keyPairMenuButton = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-keypair-menu]') : null;
+  if (keyPairMenuButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const keyId = keyPairMenuButton.dataset.keyId ?? '';
+    setKeyPairMenuOpen(keyPairMenuKeyId !== keyId || keyPairMenu.hidden, keyId, keyPairMenuButton);
+    return;
+  }
+
+  const privateMenuButton = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-private-menu]') : null;
+  if (privateMenuButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const keyId = privateMenuButton.dataset.keyId ?? '';
+    setPrivateKeyMenuOpen(privateKeyMenuKeyId !== keyId || privateKeyMenu.hidden, keyId, privateMenuButton);
+    return;
+  }
 
   const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-key-node]') : null;
   if (!button) return;
 
-  selectKeyNode(button.dataset.keyId ?? '', button.dataset.keyNode as KeyNodeKind);
+  selectKeyNode(button.dataset.keyId ?? '', button.dataset.keyNode as KeyNodeKind, button.dataset.csrId, button.dataset.subjectDnId);
 });
 
 keyTree.addEventListener('focusout', (event) => {
@@ -254,6 +367,14 @@ keyTree.addEventListener('keydown', (event) => {
 document.addEventListener('click', (event) => {
   if (event.target instanceof Node && !newKeyButton.contains(event.target) && !algorithmMenu.contains(event.target)) {
     setAlgorithmMenuOpen(false);
+  }
+
+  if (event.target instanceof Node && !privateKeyMenu.contains(event.target) && !keyTree.contains(event.target)) {
+    setPrivateKeyMenuOpen(false);
+  }
+
+  if (event.target instanceof Node && !keyPairMenu.contains(event.target) && !keyTree.contains(event.target)) {
+    setKeyPairMenuOpen(false);
   }
 });
 
@@ -332,6 +453,143 @@ function requestPkcs12Password(fileName: string): Promise<string | null> {
   });
 }
 
+function requestCsrOptions(): Promise<{ subjectDn: string; hashAlgorithm: string } | null> {
+  csrSubjectInput.value = 'CN=example.com, O=Example, C=JP';
+  csrHashSelect.innerHTML = CSR_HASH_ALGORITHMS.map((hash) => `<option value="${hash}">${hash}</option>`).join('');
+  csrDialog.returnValue = '';
+
+  return new Promise((resolve) => {
+    csrDialog.addEventListener(
+      'close',
+      () => {
+        if (csrDialog.returnValue !== 'create') {
+          resolve(null);
+          return;
+        }
+
+        resolve({ subjectDn: csrSubjectInput.value.trim(), hashAlgorithm: csrHashSelect.value });
+      },
+      { once: true }
+    );
+
+    csrDialog.showModal();
+    csrSubjectInput.focus();
+    csrSubjectInput.select();
+  });
+}
+
+function requestSubjectDn(): Promise<string | null> {
+  subjectDnInput.value = 'CN=example.com, O=Example, C=JP';
+  subjectDnDialog.returnValue = '';
+
+  return new Promise((resolve) => {
+    subjectDnDialog.addEventListener(
+      'close',
+      () => {
+        resolve(subjectDnDialog.returnValue === 'create' ? subjectDnInput.value.trim() : null);
+      },
+      { once: true }
+    );
+
+    subjectDnDialog.showModal();
+    subjectDnInput.focus();
+    subjectDnInput.select();
+  });
+}
+
+async function createCsr(keyId: string, subjectDn: string, hashAlgorithm: string): Promise<void> {
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  if (!keyMaterial) return;
+
+  setBusy(true);
+  setNotice('Creating CSR...');
+
+  try {
+    const info = recognizeKeyMaterial(keyMaterial);
+    if (info.family !== 'RSA' && info.family !== 'EC') throw new Error(`${info.label} is not supported for CSR signing yet.`);
+
+    const subject = parseSubjectDn(subjectDn);
+    const [privateKey, publicKey] = await Promise.all([
+      importSigningPrivateKey(keyMaterial.privateKeyDer, info, hashAlgorithm),
+      importSigningPublicKey(keyMaterial.publicKeyDer, info, hashAlgorithm)
+    ]);
+
+    const request = new CertificationRequest();
+    request.subject.typesAndValues.push(...subject);
+    await request.subjectPublicKeyInfo.importKey(publicKey);
+    request.attributes = [];
+    await request.sign(privateKey, hashAlgorithm);
+
+    const csr: CsrMaterial = {
+      id: createKeyId(),
+      label: 'CSR',
+      subjectDn,
+      hashAlgorithm,
+      bytes: new Uint8Array(request.toSchema(true).toBER(false))
+    };
+
+    keyMaterial.csrs ||= [];
+    keyMaterial.csrs.push(csr);
+    selectedNode = { keyId: keyMaterial.id, kind: 'csr', csrId: csr.id };
+    renderKeyTree();
+    showSelectedNode();
+    setNotice(`Created CSR for ${subjectDn}.`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function createSubjectDn(keyId: string, subjectDn: string): void {
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  if (!keyMaterial) return;
+
+  try {
+    const item: SubjectDnMaterial = {
+      id: createKeyId(),
+      label: 'SubjectDN',
+      subjectDn,
+      bytes: createSubjectDnBytes(subjectDn)
+    };
+
+    keyMaterial.subjectDns ||= [];
+    keyMaterial.subjectDns.push(item);
+    selectedNode = { keyId: keyMaterial.id, kind: 'subjectdn', subjectDnId: item.id };
+    renderKeyTree();
+    showSelectedNode();
+    setNotice(`Created SubjectDN for ${subjectDn}.`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+  }
+}
+
+function createSubjectDnBytes(subjectDn: string): Uint8Array {
+  const subject = new RelativeDistinguishedNames({ typesAndValues: parseSubjectDn(subjectDn) });
+  return new Uint8Array(subject.toSchema().toBER(false));
+}
+
+function listenForViewerChanges(instance: PkiStudioInstance): void {
+  instance.root?.addEventListener('pkistudio-change', (event) => {
+    if (!selectedNode || selectedNode.kind !== 'subjectdn') return;
+    const bytes = event instanceof CustomEvent && event.detail?.bytes instanceof Uint8Array ? event.detail.bytes : instance.getBytes?.();
+    if (!bytes) return;
+    updateSelectedSubjectDnBytes(bytes);
+  });
+}
+
+function updateSelectedSubjectDnBytes(bytes: Uint8Array): void {
+  if (!selectedNode || selectedNode.kind !== 'subjectdn') return;
+
+  const keyMaterial = keyMaterials.find((material) => material.id === selectedNode?.keyId);
+  const subjectDn = keyMaterial?.subjectDns?.find((item) => item.id === selectedNode?.subjectDnId);
+  if (!subjectDn || bytesEqual(subjectDn.bytes, bytes)) return;
+
+  subjectDn.bytes = new Uint8Array(bytes);
+  renderKeyTree();
+  setNotice(`Updated ${subjectDn.label} from viewer edits.`);
+}
+
 function getGenerationOptions(selection: string): SupportedKeyAlgorithm {
   const supported = supportedAlgorithms.find((candidate) => candidate.id === selection);
   if (!supported) throw new Error(`Unsupported algorithm: ${selection || '(none selected)'}`);
@@ -367,9 +625,9 @@ function applyEmbeddedViewerStyles(instance: PkiStudioInstance): void {
   instance.root.prepend(style);
 }
 
-function selectKeyNode(keyId: string, kind: KeyNodeKind): void {
+function selectKeyNode(keyId: string, kind: KeyNodeKind, csrId?: string, subjectDnId?: string): void {
   if (!keyMaterials.some((material) => material.id === keyId)) return;
-  selectedNode = { keyId, kind };
+  selectedNode = { keyId, kind, csrId, subjectDnId };
   renderKeyTree();
   showSelectedNode();
 }
@@ -380,12 +638,12 @@ function showSelectedNode(): void {
   const keyMaterial = keyMaterials.find((material) => material.id === selectedNode?.keyId);
   if (!keyMaterial) return;
 
-  const bytes = getSelectedNodeBytes(keyMaterial, selectedNode.kind);
+  const bytes = getSelectedNodeBytes(keyMaterial, selectedNode);
   if (!bytes) return;
 
   const info = recognizeKeyMaterial(keyMaterial);
   const format = getSelectedNodeFormat(selectedNode.kind);
-  const label = getSelectedNodeLabel(selectedNode.kind);
+  const label = getSelectedNodeLabel(keyMaterial, selectedNode);
   showBytes(bytes, `${info.label} ${label} (${format})`);
 }
 
@@ -404,14 +662,16 @@ function renderKeyTree(): void {
     <details class="tree-node" open>
       <summary>
         <span class="tree-toggle" aria-hidden="true">−</span>
-        <span class="tree-icon folder" aria-hidden="true"></span>
+        <button class="tree-icon-button" type="button" data-keypair-menu data-key-id="${escapeHtml(keyMaterial.id)}" aria-label="KeyPair actions"><span class="tree-icon folder" aria-hidden="true"></span></button>
         <span class="tree-tag key-label" data-key-label data-key-id="${escapeHtml(keyMaterial.id)}" contenteditable="true" spellcheck="false">${escapeHtml(keyMaterial.label || info.label)}</span>
         <span class="tree-pill">KeyPair</span>
       </summary>
       <div class="tree-children">
+        ${(keyMaterial.subjectDns ?? []).map((subjectDn) => renderSubjectDnNode(keyMaterial, subjectDn)).join('')}
         ${renderMaterialNode(keyMaterial, 'private', 'PrivateKey', keyMaterial.privateKeyDer, info.label)}
         ${keyMaterial.certificateDer ? '' : renderMaterialNode(keyMaterial, 'public', 'PublicKey', keyMaterial.publicKeyDer, info.label)}
         ${keyMaterial.certificateDer ? renderMaterialNode(keyMaterial, 'certificate', 'Certificate', keyMaterial.certificateDer) : ''}
+        ${(keyMaterial.csrs ?? []).map((csr) => renderCsrNode(keyMaterial, csr)).join('')}
       </div>
     </details>
   `;
@@ -419,14 +679,44 @@ function renderKeyTree(): void {
     .join('');
 }
 
+function renderSubjectDnNode(keyMaterial: KeyMaterial, subjectDn: SubjectDnMaterial): string {
+  const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === 'subjectdn' && selectedNode.subjectDnId === subjectDn.id;
+  return `
+    <div class="tree-row${selected ? ' selected' : ''}">
+      <span class="tree-icon leaf" aria-hidden="true"></span>
+      <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="subjectdn" data-subject-dn-id="${escapeHtml(subjectDn.id)}" aria-pressed="${selected}">
+        <span class="tree-tag">${escapeHtml(subjectDn.label)} (${subjectDn.bytes.byteLength})</span>
+      </button>
+    </div>
+  `;
+}
+
 function renderMaterialNode(keyMaterial: KeyMaterial, kind: KeyNodeKind, label: string, bytes: Uint8Array, algorithmLabel?: string): string {
   const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === kind;
   const suffix = algorithmLabel && (kind === 'private' || kind === 'public') ? ` // ${algorithmLabel}` : '';
+  const menuButton =
+    kind === 'private'
+      ? `<button class="tree-icon-button" type="button" data-private-menu data-key-id="${escapeHtml(keyMaterial.id)}" aria-label="PrivateKey actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`
+      : '<span class="tree-icon leaf" aria-hidden="true"></span>';
   return `
-    <button class="tree-item${selected ? ' selected' : ''}" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="${kind}" aria-pressed="${selected}">
-      <span class="tree-icon leaf" aria-hidden="true"></span>
+    <div class="tree-row${selected ? ' selected' : ''}">
+      ${menuButton}
+      <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="${kind}" aria-pressed="${selected}">
       <span class="tree-tag">${label} (${bytes.byteLength})${escapeHtml(suffix)}</span>
-    </button>
+      </button>
+    </div>
+  `;
+}
+
+function renderCsrNode(keyMaterial: KeyMaterial, csr: CsrMaterial): string {
+  const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === 'csr' && selectedNode.csrId === csr.id;
+  return `
+    <div class="tree-row${selected ? ' selected' : ''}">
+      <span class="tree-icon leaf" aria-hidden="true"></span>
+      <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="csr" data-csr-id="${escapeHtml(csr.id)}" aria-pressed="${selected}">
+        <span class="tree-tag">${escapeHtml(csr.label)} (${csr.bytes.byteLength}) // ${escapeHtml(csr.hashAlgorithm)}</span>
+      </button>
+    </div>
   `;
 }
 
@@ -441,21 +731,33 @@ function getDefaultKeyLabel(keyMaterial: Pick<KeyMaterial, 'privateKeyDer' | 'pu
   return recognizeKeyMaterial({ id: '', privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer }).label;
 }
 
-function getSelectedNodeBytes(keyMaterial: KeyMaterial, kind: KeyNodeKind): Uint8Array | undefined {
-  if (kind === 'private') return keyMaterial.privateKeyDer;
-  if (kind === 'public') return keyMaterial.publicKeyDer;
+function getSelectedNodeBytes(keyMaterial: KeyMaterial, selected: SelectedKeyNode): Uint8Array | undefined {
+  if (selected.kind === 'private') return keyMaterial.privateKeyDer;
+  if (selected.kind === 'public') return keyMaterial.publicKeyDer;
+  if (selected.kind === 'csr') return keyMaterial.csrs?.find((csr) => csr.id === selected.csrId)?.bytes;
+  if (selected.kind === 'subjectdn') return keyMaterial.subjectDns?.find((subjectDn) => subjectDn.id === selected.subjectDnId)?.bytes;
   return keyMaterial.certificateDer;
 }
 
 function getSelectedNodeFormat(kind: KeyNodeKind): string {
   if (kind === 'private') return 'PKCS#8 DER';
   if (kind === 'public') return 'SPKI DER';
+  if (kind === 'csr') return 'PKCS#10 CSR DER';
+  if (kind === 'subjectdn') return 'X.509 subject DER';
   return 'X.509 certificate DER';
 }
 
-function getSelectedNodeLabel(kind: KeyNodeKind): string {
-  if (kind === 'private') return 'private key';
-  if (kind === 'public') return 'public key';
+function getSelectedNodeLabel(keyMaterial: KeyMaterial, selected: SelectedKeyNode): string {
+  if (selected.kind === 'private') return 'private key';
+  if (selected.kind === 'public') return 'public key';
+  if (selected.kind === 'csr') {
+    const csr = keyMaterial.csrs?.find((item) => item.id === selected.csrId);
+    return csr ? `CSR ${csr.subjectDn}` : 'CSR';
+  }
+  if (selected.kind === 'subjectdn') {
+    const subjectDn = keyMaterial.subjectDns?.find((item) => item.id === selected.subjectDnId);
+    return subjectDn ? `SubjectDN ${subjectDn.subjectDn}` : 'SubjectDN';
+  }
   return 'certificate';
 }
 
@@ -469,6 +771,158 @@ function setBusy(busy: boolean): void {
 function setNotice(message: string, isError = false): void {
   formNotice.textContent = message;
   formNotice.classList.toggle('error', isError);
+}
+
+function setPrivateKeyMenuOpen(open: boolean, keyId?: string, anchor?: HTMLElement): void {
+  if (!open || !keyId || !anchor) {
+    privateKeyMenu.hidden = true;
+    privateKeyMenuKeyId = null;
+    return;
+  }
+
+  setKeyPairMenuOpen(false);
+  privateKeyMenuKeyId = keyId;
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  const info = keyMaterial ? recognizeKeyMaterial(keyMaterial) : null;
+  const supported = info?.family === 'RSA' || info?.family === 'EC';
+  newCsrMenuItem.disabled = !supported;
+  newCsrMenuItem.title = supported ? '' : 'CSR creation currently supports RSA and EC signing keys.';
+
+  const rect = anchor.getBoundingClientRect();
+  privateKeyMenu.style.left = `${rect.left}px`;
+  privateKeyMenu.style.top = `${rect.bottom + 2}px`;
+  privateKeyMenu.hidden = false;
+}
+
+function setKeyPairMenuOpen(open: boolean, keyId?: string, anchor?: HTMLElement): void {
+  if (!open || !keyId || !anchor) {
+    keyPairMenu.hidden = true;
+    keyPairMenuKeyId = null;
+    return;
+  }
+
+  setPrivateKeyMenuOpen(false);
+  keyPairMenuKeyId = keyId;
+  const rect = anchor.getBoundingClientRect();
+  keyPairMenu.style.left = `${rect.left}px`;
+  keyPairMenu.style.top = `${rect.bottom + 2}px`;
+  keyPairMenu.hidden = false;
+}
+
+async function importSigningPrivateKey(bytes: Uint8Array, info: RecognizedKeyInfo, hashAlgorithm: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey('pkcs8', toArrayBuffer(bytes), getSigningKeyAlgorithm(info, hashAlgorithm), false, ['sign']);
+}
+
+async function importSigningPublicKey(bytes: Uint8Array, info: RecognizedKeyInfo, hashAlgorithm: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey('spki', toArrayBuffer(bytes), getSigningKeyAlgorithm(info, hashAlgorithm), true, ['verify']);
+}
+
+function getSigningKeyAlgorithm(info: RecognizedKeyInfo, hashAlgorithm: string): RsaHashedImportParams | EcKeyImportParams {
+  if (info.family === 'RSA') return { name: 'RSASSA-PKCS1-v1_5', hash: hashAlgorithm };
+  if (info.family === 'EC' && info.namedCurve) return { name: 'ECDSA', namedCurve: info.namedCurve };
+  throw new Error(`${info.label} is not supported for CSR signing yet.`);
+}
+
+function parseSubjectDn(subjectDn: string): AttributeTypeAndValue[] {
+  const parts = splitSubjectDn(subjectDn);
+  if (parts.length === 0) throw new Error('subjectDN is required.');
+
+  return [...parts].reverse().map((part) => {
+    const separator = findUnescaped(part, '=');
+    if (separator <= 0) throw new Error(`Invalid subjectDN part: ${part}`);
+
+    const name = unescapeDnValue(part.slice(0, separator).trim());
+    const value = unescapeDnValue(part.slice(separator + 1).trim());
+    if (!name || !value) throw new Error(`Invalid subjectDN part: ${part}`);
+
+    return new AttributeTypeAndValue({ type: subjectOid(name), value: subjectValue(name, value) });
+  });
+}
+
+function splitSubjectDn(subjectDn: string): string[] {
+  const trimmed = subjectDn.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('/')) return splitEscaped(trimmed.slice(1), '/');
+  return splitEscaped(trimmed, ',');
+}
+
+function splitEscaped(value: string, separator: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let escaped = false;
+
+  for (const character of value) {
+    if (escaped) {
+      current += `\\${character}`;
+      escaped = false;
+      continue;
+    }
+
+    if (character === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (character === separator) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (escaped) current += '\\';
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function findUnescaped(value: string, needle: string): number {
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (character === needle) return index;
+  }
+  return -1;
+}
+
+function unescapeDnValue(value: string): string {
+  return value.replace(/\\([,=\\/])/g, '$1');
+}
+
+function subjectOid(name: string): string {
+  const oids: Record<string, string> = {
+    C: '2.5.4.6',
+    ST: '2.5.4.8',
+    S: '2.5.4.8',
+    L: '2.5.4.7',
+    O: '2.5.4.10',
+    OU: '2.5.4.11',
+    CN: '2.5.4.3',
+    DC: '0.9.2342.19200300.100.1.25',
+    SN: '2.5.4.5',
+    SERIALNUMBER: '2.5.4.5',
+    EMAILADDRESS: '1.2.840.113549.1.9.1'
+  };
+
+  const oid = oids[name.toUpperCase()] ?? (/^\d+(\.\d+)+$/.test(name) ? name : undefined);
+  if (!oid) throw new Error(`Unsupported subjectDN attribute: ${name}`);
+  return oid;
+}
+
+function subjectValue(name: string, value: string): asn1js.Utf8String | asn1js.PrintableString | asn1js.IA5String {
+  const normalized = name.toUpperCase();
+  if (normalized === 'C') return new asn1js.PrintableString({ value });
+  if (normalized === 'EMAILADDRESS' || normalized === 'DC') return new asn1js.IA5String({ value });
+  return new asn1js.Utf8String({ value });
 }
 
 async function populateSupportedAlgorithms(): Promise<void> {
@@ -729,6 +1183,20 @@ function decodeOid(bytes: Uint8Array): string {
 
 function createKeyId(): string {
   return crypto.randomUUID?.() ?? String(Date.now());
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
 }
 
 function escapeHtml(value: string): string {

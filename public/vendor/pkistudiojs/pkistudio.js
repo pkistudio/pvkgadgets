@@ -2016,12 +2016,17 @@ details[open] > summary .node-line {
       viewer.classList.remove('empty');
       viewer.innerHTML = `<div class="tree">${currentNodes.map((node) => renderNode(node)).join('')}</div>`;
     }
+
+    function emitDocumentChange() {
+      scope.dispatchEvent(new CustomEvent('pkistudio-change', { detail: { bytes: currentBytes ? new Uint8Array(currentBytes) : null } }));
+    }
     
     function rebuildDocumentFromModel() {
       currentBytes = encodeNodes(currentNodes);
       currentNodes = parseElements(currentBytes, 0, currentBytes.length);
       indexNodes(currentNodes);
       renderCurrentDocument();
+      emitDocumentChange();
     }
 
     function getCheckedValue(name) {
@@ -2668,6 +2673,7 @@ details[open] > summary .node-line {
       hideOctetDialog();
       renderCurrentDocument();
       fileNotice.textContent = notice;
+      emitDocumentChange();
     }
     
     function loadExpandedDocument() {
@@ -3107,6 +3113,7 @@ details[open] > summary .node-line {
 
     return {
       close: closeDocument,
+      getBytes: () => (currentBytes ? new Uint8Array(currentBytes) : null),
       loadBytes: renderDerBytes,
       mount,
       root: scope
