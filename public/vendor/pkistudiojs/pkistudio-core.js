@@ -3,7 +3,7 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.PkiStudioCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : undefined, () => {
-  const VERSION = '0.2.0';
+  const VERSION = '0.2.2';
   const CLASS_NAMES = ['Universal', 'Application', 'Context-specific', 'Private'];
   const UNIVERSAL_TAGS = {
     1: 'BOOLEAN',
@@ -567,6 +567,12 @@
     return flattenNodes(nodes).find((node) => node.id === String(nodeId)) || null;
   }
 
+  function getNodeBytes(nodes, nodeId) {
+    const node = findNodeById(nodes, nodeId);
+    if (!node) throw new Error('The node was not found');
+    return encodeNode(node);
+  }
+
   function resolveOid(oid, oidNames = {}) {
     return oidNames[oid] || '';
   }
@@ -588,6 +594,7 @@
     encodeOid,
     findNodeById,
     flattenNodes,
+    getNodeBytes,
     getNodeValueBytes,
     getTagName,
     hexToBytes,

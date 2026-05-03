@@ -54,8 +54,8 @@ select {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(280px, var(--key-panel-width, 360px)) 6px minmax(420px, 1fr);
+  gap: 6px;
   border: 1px solid var(--panel-border);
   border-radius: 0 0 6px 6px;
   padding: 8px;
@@ -63,11 +63,111 @@ select {
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
 }
 
+.workspace.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.pane-resizer {
+  position: relative;
+  align-self: stretch;
+  min-height: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent 0 2px, #9aa3af 2px 3px, transparent 3px 6px);
+  cursor: col-resize;
+}
+
+.pane-resizer:hover,
+.pane-resizer:focus-visible,
+.workspace.resizing .pane-resizer {
+  border-color: #9dbce5;
+  background-color: #eaf3ff;
+  outline: none;
+}
+
 .panel {
   border: 1px solid var(--panel-border);
   border-radius: 3px;
   padding: 10px;
   background: var(--panel);
+}
+
+.api-log-panel {
+  margin-top: 8px;
+  padding: 0;
+}
+
+.api-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--panel-border);
+  border-radius: 3px 3px 0 0;
+  padding: 4px 6px 4px 8px;
+  background: linear-gradient(#ffffff, var(--chrome));
+}
+
+.api-log-header strong {
+  font-weight: 700;
+}
+
+.api-log-header button {
+  min-height: 24px;
+  border-color: transparent;
+  padding: 2px 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.api-log-header button:hover,
+.api-log-header button:focus-visible {
+  border-color: #9dbce5;
+  background: #eaf3ff;
+  outline: none;
+}
+
+.api-log-list {
+  display: grid;
+  align-content: start;
+  max-height: 160px;
+  min-height: 92px;
+  overflow: auto;
+  padding: 5px 6px;
+  background: #fff;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.api-log-entry {
+  display: grid;
+  grid-template-columns: 174px minmax(150px, 220px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  border-bottom: 1px solid #edf0f4;
+  padding: 2px 0;
+}
+
+.api-log-entry time {
+  color: var(--muted);
+}
+
+.api-log-operation {
+  color: #1f4f86;
+  overflow-wrap: anywhere;
+}
+
+.api-log-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.api-log-entry.error .api-log-operation,
+.api-log-entry.error .api-log-detail {
+  color: var(--danger);
 }
 
 .key-panel {
@@ -189,6 +289,45 @@ button:disabled {
   outline: none;
   border-color: #9dbce5;
   background: #eaf3ff;
+}
+
+.node-context-menu-group {
+  position: relative;
+}
+
+.node-context-submenu-trigger {
+  position: relative;
+}
+
+.node-context-submenu-trigger::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.node-context-submenu {
+  position: absolute;
+  top: -3px;
+  left: 100%;
+  z-index: 21;
+  display: none;
+  min-width: 190px;
+  border: 1px solid #8f98a3;
+  border-radius: 3px;
+  padding: 3px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+}
+
+.node-context-menu-group:hover .node-context-submenu,
+.node-context-menu-group:focus-within .node-context-submenu {
+  display: block;
 }
 
 .tree {
@@ -395,6 +534,12 @@ button:disabled {
   width: min(460px, calc(100% - 32px));
 }
 
+#selfSignedCertDialog {
+  width: min(420px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+
 .password-dialog::backdrop {
   background: rgba(15, 23, 42, 0.2);
 }
@@ -421,7 +566,8 @@ button:disabled {
   font-size: 12px;
 }
 
-.password-field input {
+.password-field input,
+.password-field select {
   width: 100%;
   border: 1px solid #8f98a3;
   border-radius: 3px;
@@ -443,6 +589,11 @@ button:disabled {
   border-radius: 3px;
   padding: 5px;
   background: #fff;
+}
+
+#selfSignedCertKeyUsageList {
+  max-height: none;
+  overflow: visible;
 }
 
 .checkbox-list-item {
@@ -501,7 +652,6 @@ button:disabled {
   display: flex;
   min-width: 0;
   min-height: 0;
-  padding: 8px;
 }
 
 #viewerMount {
@@ -516,8 +666,20 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .pane-resizer {
+    display: none;
+  }
+
   #viewerMount {
     height: auto;
     min-height: 620px;
+  }
+
+  .api-log-entry {
+    grid-template-columns: 174px minmax(0, 1fr);
+  }
+
+  .api-log-detail {
+    grid-column: 1 / -1;
   }
 }

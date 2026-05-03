@@ -1,6 +1,6 @@
 (() => {
   let defaultInstance = null;
-  const APP_VERSION = '0.2.0';
+  const APP_VERSION = '0.2.2';
 
   const APP_STYLES = `:host {
   color-scheme: light;
@@ -142,45 +142,6 @@ p {
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
 }
 
-.picker {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px 12px;
-  align-items: center;
-  place-items: center;
-  min-height: auto;
-  margin-bottom: 8px;
-  border: 1px solid #c9cdd3;
-  border-radius: 3px;
-  padding: 8px 10px;
-  text-align: left;
-  background: #fff;
-}
-
-.picker.dragover {
-  border-color: var(--accent);
-  background: #eef6ff;
-}
-
-.picker strong,
-.picker p {
-  justify-self: start;
-}
-
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  grid-row: 1 / span 2;
-  grid-column: 2;
-  border: 1px solid #8f98a3;
-  border-radius: 3px;
-  padding: 5px 14px;
-  color: #111827;
-  background: linear-gradient(#ffffff, #e7e9ee);
-  cursor: pointer;
-}
-
 input[type="file"] {
   position: absolute;
   width: 1px;
@@ -207,6 +168,11 @@ input[type="file"] {
   place-items: center;
   padding: 32px;
   color: var(--muted);
+}
+
+.viewer.dragover {
+  border-color: var(--accent);
+  background: #eef6ff;
 }
 
 .tree {
@@ -896,12 +862,7 @@ details[open] > summary .node-line {
   </section>
 
   <section class="card">
-    <label id="dropZone" class="picker" for="fileInput">
-      <input id="fileInput" type="file" accept=".der,.pem,.cer,.crt,.csr,.p7b,.p7c,.crl,.bin,application/pkix-cert,application/pkcs10,application/octet-stream,text/plain" />
-      <strong>Select a DER / PEM file</strong>
-      <p>Open DER binaries, PEM files, or headerless base64 ASN.1 data.</p>
-      <span class="button">Open File</span>
-    </label>
+    <input id="fileInput" type="file" accept=".der,.pem,.cer,.crt,.csr,.p7b,.p7c,.crl,.bin,application/pkix-cert,application/pkcs10,application/octet-stream,text/plain" hidden />
     <div id="viewer" class="viewer empty">No DER / PEM file selected yet.</div>
     <p id="fileNotice" class="notice">
       PEM and headerless base64 input are decoded before parsing.
@@ -1099,7 +1060,6 @@ details[open] > summary .node-line {
     const mount = resolveMount(options.mount);
     const scope = createAppRoot(mount, options);
     const fileInput = scope.querySelector('#fileInput');
-    const dropZone = scope.querySelector('#dropZone');
     const menu = scope.querySelector('.menu');
     const loadMenu = scope.querySelector('#loadMenu');
     const saveMenu = scope.querySelector('#saveMenu');
@@ -2016,17 +1976,18 @@ details[open] > summary .node-line {
       viewer.classList.remove('empty');
       viewer.innerHTML = `<div class="tree">${currentNodes.map((node) => renderNode(node)).join('')}</div>`;
     }
-
-    function emitDocumentChange() {
-      scope.dispatchEvent(new CustomEvent('pkistudio-change', { detail: { bytes: currentBytes ? new Uint8Array(currentBytes) : null } }));
-    }
     
     function rebuildDocumentFromModel() {
       currentBytes = encodeNodes(currentNodes);
       currentNodes = parseElements(currentBytes, 0, currentBytes.length);
       indexNodes(currentNodes);
       renderCurrentDocument();
-      emitDocumentChange();
+    }
+
+    function getNodeBytes(nodeId) {
+      const node = nodeById.get(String(nodeId));
+      if (!node) throw new Error('The node was not found');
+      return encodeNode(node);
     }
 
     function getCheckedValue(name) {
@@ -2127,10 +2088,6 @@ details[open] > summary .node-line {
       rebuildDocumentFromModel();
       fileNotice.textContent = `Deleted ${tagName}.`;
     }
-
-    function createNewWindowUrl() {
-      return new URL(options.newWindowUrl || window.location.href, window.location.href);
-    }
     
     function openExpandedDerWindow(node) {
       if (!node.encapsulated || node.children.length === 0) return;
@@ -2149,8 +2106,7 @@ details[open] > summary .node-line {
         return;
       }
     
-      const url = createNewWindowUrl();
-      url.searchParams.delete('subtree');
+      const url = new URL(window.location.href);
       url.searchParams.set('expand', key);
       url.hash = '';
     
@@ -2179,7 +2135,7 @@ details[open] > summary .node-line {
         return;
       }
     
-      const url = createNewWindowUrl();
+      const url = new URL(window.location.href);
       url.searchParams.delete('expand');
       url.searchParams.set('subtree', key);
       url.hash = '';
@@ -2673,7 +2629,6 @@ details[open] > summary .node-line {
       hideOctetDialog();
       renderCurrentDocument();
       fileNotice.textContent = notice;
-      emitDocumentChange();
     }
     
     function loadExpandedDocument() {
@@ -3093,27 +3048,27 @@ details[open] > summary .node-line {
     });
     
     for (const eventName of ['dragenter', 'dragover']) {
-      dropZone.addEventListener(eventName, (event) => {
+      viewer.addEventListener(eventName, (event) => {
         event.preventDefault();
-        dropZone.classList.add('dragover');
+        viewer.classList.add('dragover');
       });
     }
     
     for (const eventName of ['dragleave', 'drop']) {
-      dropZone.addEventListener(eventName, (event) => {
+      viewer.addEventListener(eventName, (event) => {
         event.preventDefault();
-        dropZone.classList.remove('dragover');
+        viewer.classList.remove('dragover');
       });
     }
     
-    dropZone.addEventListener('drop', (event) => {
+    viewer.addEventListener('drop', (event) => {
       const [file] = event.dataTransfer.files;
       if (file) renderFile(file);
     });
 
     return {
       close: closeDocument,
-      getBytes: () => (currentBytes ? new Uint8Array(currentBytes) : null),
+      getNodeBytes,
       loadBytes: renderDerBytes,
       mount,
       root: scope

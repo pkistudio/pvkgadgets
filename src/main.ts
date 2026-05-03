@@ -1,11 +1,11 @@
 import './styles.css';
 import * as asn1js from 'asn1js';
-import { AttributeTypeAndValue, Certificate, CertificationRequest, RelativeDistinguishedNames } from 'pkijs';
+import { AttributeTypeAndValue, BasicConstraints, Certificate, CertificationRequest, Extension, RelativeDistinguishedNames, Time } from 'pkijs';
 import { readPkcs12Keys, writePkcs12Keys, type Pkcs12KeyMaterial } from './pkcs12';
 
 type PkiStudioInstance = {
   close?: () => void;
-  getBytes?: () => Uint8Array | null;
+  getNodeBytes?: (nodeId: string) => Uint8Array;
   loadBytes: (bytes: Uint8Array, notice?: string) => void;
   root?: DocumentFragment | Element;
 };
@@ -25,12 +25,14 @@ type PkiStudioCoreApi = {
   bytesToBase64: (bytes: Uint8Array) => string;
   decodeOid: (bytes: Uint8Array) => string;
   decodePem: (text: string) => Uint8Array;
+  hexToBytes: (text: string, options?: { allowEmpty?: boolean }) => Uint8Array;
   parseElements: (bytes: Uint8Array, offset?: number, end?: number, depth?: number) => PkiStudioCoreNode[];
 };
 
 type PkiStudioApi = {
   core?: PkiStudioCoreApi | null;
   init: (options: { mount: string | Element; oidUrl?: string; shadowRoot?: boolean; newWindowUrl?: string }) => PkiStudioInstance;
+  version?: string;
 };
 
 type SaveFilePickerOptions = {
@@ -40,6 +42,7 @@ type SaveFilePickerOptions = {
 
 type SaveFileHandle = {
   createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>;
+  name?: string;
 };
 
 declare global {
@@ -101,6 +104,15 @@ type KeyAlgorithmCandidate = {
 
 type SupportedKeyAlgorithm = KeyAlgorithmCandidate;
 
+type ViewerRoot = DocumentFragment | Element;
+
+type CertificateKeyUsage = {
+  id: string;
+  label: string;
+  bit: number;
+  defaultChecked?: boolean;
+};
+
 const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
   ...createRsaCandidates('RSASSA-PKCS1-v1_5', 'SHA-256', ['sign', 'verify']),
   ...createRsaCandidates('RSA-PSS', 'SHA-256', ['sign', 'verify']),
@@ -155,6 +167,28 @@ main {
   max-height: none !important;
 }
 
+:host(.pvkgadgets-viewer-readonly) [data-action="toggle-load-menu"],
+:host(.pvkgadgets-viewer-readonly) [data-action="open"],
+:host(.pvkgadgets-viewer-readonly) [data-action="load-clipboard-pem"],
+:host(.pvkgadgets-viewer-readonly) [data-action="load-clipboard-hex"],
+:host(.pvkgadgets-viewer-readonly) [data-action="close"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="edit"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="insert-before"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="add-child"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="delete"],
+.pvkgadgets-viewer-readonly [data-action="toggle-load-menu"],
+.pvkgadgets-viewer-readonly [data-action="open"],
+.pvkgadgets-viewer-readonly [data-action="load-clipboard-pem"],
+.pvkgadgets-viewer-readonly [data-action="load-clipboard-hex"],
+.pvkgadgets-viewer-readonly [data-action="close"],
+.pvkgadgets-viewer-readonly [data-node-action="edit"],
+.pvkgadgets-viewer-readonly [data-node-action="insert-before"],
+.pvkgadgets-viewer-readonly [data-node-action="add-child"],
+.pvkgadgets-viewer-readonly [data-node-action="delete"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 @media (max-width: 820px) {
   .viewer {
     min-height: 520px !important;
@@ -185,15 +219,24 @@ app.innerHTML = `
         </nav>
         <div id="privateKeyMenu" class="node-context-menu" role="menu" hidden>
           <button id="newCsrMenuItem" type="button" role="menuitem">New CSR</button>
+          <button id="newSelfSignedCertMenuItem" type="button" role="menuitem">New self-signed Cert</button>
           <button id="deletePrivateKeyMenuItem" type="button" role="menuitem">Delete</button>
         </div>
         <div id="keyPairMenu" class="node-context-menu" role="menu" hidden>
-          <button id="addCertificateMenuItem" type="button" role="menuitem">add Certificate</button>
+          <div class="node-context-menu-group" role="none">
+            <button id="loadCertificateMenuItem" class="node-context-submenu-trigger" type="button" role="menuitem" aria-haspopup="menu">Load Certificate</button>
+            <div class="node-context-submenu" role="menu" aria-label="Load Certificate">
+              <button id="loadCertificateFromFileMenuItem" type="button" role="menuitem">from File</button>
+              <button id="loadCertificateFromClipboardPemMenuItem" type="button" role="menuitem">from Clipboard as PEM</button>
+              <button id="loadCertificateFromClipboardHexMenuItem" type="button" role="menuitem">from Clipboard as HEX</button>
+            </div>
+          </div>
           <button id="newSubjectDnMenuItem" type="button" role="menuitem">New SubjectDN</button>
           <button id="deleteKeyPairMenuItem" type="button" role="menuitem">Delete</button>
         </div>
         <div id="certificateMenu" class="node-context-menu" role="menu" hidden>
           <button id="newCertificateSubjectDnMenuItem" type="button" role="menuitem">New SubjectDN</button>
+          <button id="copyCertificatePemMenuItem" type="button" role="menuitem">Copy as PEM</button>
           <button id="deleteCertificateMenuItem" type="button" role="menuitem">Delete</button>
         </div>
         <div id="childItemMenu" class="node-context-menu" role="menu" hidden>
@@ -203,9 +246,17 @@ app.innerHTML = `
         <div id="keyTree" class="tree empty">No key generated yet.</div>
         <p id="formNotice" class="notice">Generated DER is sent to the ASN.1 viewer.</p>
       </section>
-      <section class="viewer-panel panel" aria-label="ASN.1 viewer">
+      <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize panes" aria-orientation="vertical" tabindex="0"></div>
+      <section class="viewer-panel" aria-label="ASN.1 viewer">
         <div id="viewerMount"></div>
       </section>
+    </section>
+    <section class="api-log-panel panel" aria-label="API log">
+      <header class="api-log-header">
+        <strong>API Log</strong>
+        <button id="clearApiLogButton" type="button">Clear</button>
+      </header>
+      <div id="apiLogList" class="api-log-list" role="log" aria-live="polite" aria-relevant="additions"></div>
     </section>
     <dialog id="pkcs12PasswordDialog" class="password-dialog">
       <form method="dialog" class="password-panel">
@@ -249,6 +300,29 @@ app.innerHTML = `
         </div>
       </form>
     </dialog>
+    <dialog id="selfSignedCertDialog" class="password-dialog">
+      <form method="dialog" class="password-panel">
+        <h2>New self-signed Cert</h2>
+        <label class="password-field">
+          <span>subjectDN</span>
+          <input id="selfSignedCertSubjectInput" type="text" autocomplete="off" readonly />
+        </label>
+        <div id="selfSignedCertSubjectError" class="dialog-error" role="alert" hidden></div>
+        <label class="password-field">
+          <span>Hash algorithm</span>
+          <select id="selfSignedCertHashSelect"></select>
+        </label>
+        <label class="password-field">
+          <span>Validity span days</span>
+          <input id="selfSignedCertValidityDaysInput" type="number" min="1" step="1" value="365" inputmode="numeric" />
+        </label>
+        <div id="selfSignedCertKeyUsageList" class="checkbox-list" role="group" aria-label="Key usage"></div>
+        <div class="dialog-actions">
+          <button type="submit" value="cancel">Cancel</button>
+          <button type="submit" value="create">Create</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="subjectDnDialog" class="password-dialog">
       <form method="dialog" class="password-panel">
         <h2>New SubjectDN</h2>
@@ -266,6 +340,8 @@ app.innerHTML = `
 `;
 
 const newKeyButton = query<HTMLButtonElement>('#newKeyButton');
+const workspace = query<HTMLElement>('.workspace');
+const paneResizer = query<HTMLElement>('#paneResizer');
 const openKeyButton = query<HTMLButtonElement>('#openKeyButton');
 const saveKeyButton = query<HTMLButtonElement>('#saveKeyButton');
 const openKeyInput = query<HTMLInputElement>('#openKeyInput');
@@ -273,19 +349,25 @@ const certificateInput = query<HTMLInputElement>('#certificateInput');
 const algorithmMenu = query<HTMLDivElement>('#algorithmMenu');
 const privateKeyMenu = query<HTMLDivElement>('#privateKeyMenu');
 const newCsrMenuItem = query<HTMLButtonElement>('#newCsrMenuItem');
+const newSelfSignedCertMenuItem = query<HTMLButtonElement>('#newSelfSignedCertMenuItem');
 const deletePrivateKeyMenuItem = query<HTMLButtonElement>('#deletePrivateKeyMenuItem');
 const keyPairMenu = query<HTMLDivElement>('#keyPairMenu');
-const addCertificateMenuItem = query<HTMLButtonElement>('#addCertificateMenuItem');
+const loadCertificateFromFileMenuItem = query<HTMLButtonElement>('#loadCertificateFromFileMenuItem');
+const loadCertificateFromClipboardPemMenuItem = query<HTMLButtonElement>('#loadCertificateFromClipboardPemMenuItem');
+const loadCertificateFromClipboardHexMenuItem = query<HTMLButtonElement>('#loadCertificateFromClipboardHexMenuItem');
 const newSubjectDnMenuItem = query<HTMLButtonElement>('#newSubjectDnMenuItem');
 const deleteKeyPairMenuItem = query<HTMLButtonElement>('#deleteKeyPairMenuItem');
 const certificateMenu = query<HTMLDivElement>('#certificateMenu');
 const newCertificateSubjectDnMenuItem = query<HTMLButtonElement>('#newCertificateSubjectDnMenuItem');
+const copyCertificatePemMenuItem = query<HTMLButtonElement>('#copyCertificatePemMenuItem');
 const deleteCertificateMenuItem = query<HTMLButtonElement>('#deleteCertificateMenuItem');
 const childItemMenu = query<HTMLDivElement>('#childItemMenu');
 const copyCsrPemMenuItem = query<HTMLButtonElement>('#copyCsrPemMenuItem');
 const deleteChildItemMenuItem = query<HTMLButtonElement>('#deleteChildItemMenuItem');
 const keyTree = query<HTMLElement>('#keyTree');
 const formNotice = query<HTMLElement>('#formNotice');
+const apiLogList = query<HTMLElement>('#apiLogList');
+const clearApiLogButton = query<HTMLButtonElement>('#clearApiLogButton');
 const pkcs12PasswordDialog = query<HTMLDialogElement>('#pkcs12PasswordDialog');
 const pkcs12PasswordTitle = query<HTMLElement>('#pkcs12PasswordTitle');
 const pkcs12PasswordInput = query<HTMLInputElement>('#pkcs12PasswordInput');
@@ -298,6 +380,12 @@ const csrDialog = query<HTMLDialogElement>('#csrDialog');
 const csrSubjectInput = query<HTMLInputElement>('#csrSubjectInput');
 const csrSubjectError = query<HTMLElement>('#csrSubjectError');
 const csrHashSelect = query<HTMLSelectElement>('#csrHashSelect');
+const selfSignedCertDialog = query<HTMLDialogElement>('#selfSignedCertDialog');
+const selfSignedCertSubjectInput = query<HTMLInputElement>('#selfSignedCertSubjectInput');
+const selfSignedCertSubjectError = query<HTMLElement>('#selfSignedCertSubjectError');
+const selfSignedCertHashSelect = query<HTMLSelectElement>('#selfSignedCertHashSelect');
+const selfSignedCertValidityDaysInput = query<HTMLInputElement>('#selfSignedCertValidityDaysInput');
+const selfSignedCertKeyUsageList = query<HTMLElement>('#selfSignedCertKeyUsageList');
 const subjectDnDialog = query<HTMLDialogElement>('#subjectDnDialog');
 const subjectDnInput = query<HTMLInputElement>('#subjectDnInput');
 
@@ -312,12 +400,32 @@ let childItemMenuTarget: SelectedKeyNode | null = null;
 let pendingCertificateKeyId: string | null = null;
 
 const CSR_HASH_ALGORITHMS = ['SHA-256', 'SHA-384', 'SHA-512'];
+const MAX_API_LOG_ENTRIES = 200;
+const CERTIFICATE_KEY_USAGES: CertificateKeyUsage[] = [
+  { id: 'digitalSignature', label: 'digitalSignature', bit: 0 },
+  { id: 'nonRepudiation', label: 'nonRepudiation', bit: 1 },
+  { id: 'keyEncipherment', label: 'keyEncipherment', bit: 2 },
+  { id: 'dataEncipherment', label: 'dataEncipherment', bit: 3 },
+  { id: 'keyAgreement', label: 'keyAgreement', bit: 4 },
+  { id: 'keyCertSign', label: 'certSign', bit: 5, defaultChecked: true },
+  { id: 'cRLSign', label: 'crlSign', bit: 6, defaultChecked: true },
+  { id: 'encipherOnly', label: 'encipherOnly', bit: 7 },
+  { id: 'decipherOnly', label: 'decipherOnly', bit: 8 }
+];
 
+setupPaneResizer();
+logApi('ready', 'Waiting for API activity.');
 setBusy(true);
+
+clearApiLogButton.addEventListener('click', () => {
+  apiLogList.replaceChildren();
+  logApi('clear', 'API log cleared.');
+});
 
 window.addEventListener('DOMContentLoaded', async () => {
   if (!window.PkiStudio) {
     setNotice('pkistudiojs viewer could not be loaded.', true);
+    logApi('pkistudiojs.init', 'Viewer API was not available.', 'error');
     return;
   }
 
@@ -326,7 +434,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     oidUrl: '/vendor/pkistudiojs/oids.json',
     newWindowUrl: '/viewer.html'
   });
+  logApi('pkistudiojs.init', `Viewer ${window.PkiStudio.version ?? '(unknown version)'} mounted.`);
   applyEmbeddedViewerStyles(viewer);
+  applyViewerEditState();
   listenForViewerChanges(viewer);
 
   await populateSupportedAlgorithms();
@@ -400,6 +510,17 @@ newCsrMenuItem.addEventListener('click', async () => {
   await createCsr(keyId, options.subjectDn, options.subjectBytes, options.hashAlgorithm);
 });
 
+newSelfSignedCertMenuItem.addEventListener('click', async () => {
+  const keyId = privateKeyMenuKeyId;
+  setPrivateKeyMenuOpen(false);
+  if (!keyId) return;
+
+  const options = await requestSelfSignedCertOptions(keyId);
+  if (!options) return;
+
+  await createSelfSignedCertificate(keyId, options.subjectDn, options.subjectBytes, options.hashAlgorithm, options.validityDays, options.keyUsages);
+});
+
 deletePrivateKeyMenuItem.addEventListener('click', () => {
   const keyId = privateKeyMenuKeyId;
   setPrivateKeyMenuOpen(false);
@@ -417,13 +538,25 @@ newSubjectDnMenuItem.addEventListener('click', async () => {
   createSubjectDn(keyId, subjectDn);
 });
 
-addCertificateMenuItem.addEventListener('click', () => {
+loadCertificateFromFileMenuItem.addEventListener('click', () => {
   const keyId = keyPairMenuKeyId;
   setKeyPairMenuOpen(false);
   if (!keyId) return;
 
   pendingCertificateKeyId = keyId;
   certificateInput.click();
+});
+
+loadCertificateFromClipboardPemMenuItem.addEventListener('click', async () => {
+  const keyId = keyPairMenuKeyId;
+  setKeyPairMenuOpen(false);
+  if (keyId) await addCertificateFromClipboard(keyId, 'pem');
+});
+
+loadCertificateFromClipboardHexMenuItem.addEventListener('click', async () => {
+  const keyId = keyPairMenuKeyId;
+  setKeyPairMenuOpen(false);
+  if (keyId) await addCertificateFromClipboard(keyId, 'hex');
 });
 
 deleteKeyPairMenuItem.addEventListener('click', () => {
@@ -445,10 +578,16 @@ deleteCertificateMenuItem.addEventListener('click', () => {
   if (keyId) deleteChildNode({ keyId, kind: 'certificate' });
 });
 
+copyCertificatePemMenuItem.addEventListener('click', async () => {
+  const keyId = certificateMenuKeyId;
+  setCertificateMenuOpen(false);
+  if (keyId) await copyCertificateAsPem(keyId);
+});
+
 copyCsrPemMenuItem.addEventListener('click', async () => {
   const target = childItemMenuTarget;
   setChildItemMenuOpen(false);
-  if (target?.kind === 'csr') await copyCsrAsPem(target);
+  if (target?.kind === 'csr') await copySelectedBytesAsPem('CERTIFICATE REQUEST', 'CSR', target);
 });
 
 deleteChildItemMenuItem.addEventListener('click', () => {
@@ -565,10 +704,12 @@ async function generateKeyPair(selection: string): Promise<void> {
 
   try {
     const { algorithm, usages } = getGenerationOptions(selection);
+    logApi('WebCrypto.generateKey', `${selection} requested.`);
     const generated = await crypto.subtle.generateKey(algorithm, true, usages);
 
     if (!isCryptoKeyPair(generated)) throw new Error('The browser did not return a key pair.');
 
+    logApi('WebCrypto.exportKey', 'Exporting generated key pair as PKCS#8/SPKI DER.');
     const [privateKeyBuffer, publicKeyBuffer] = await Promise.all([
       crypto.subtle.exportKey('pkcs8', generated.privateKey),
       crypto.subtle.exportKey('spki', generated.publicKey)
@@ -586,8 +727,10 @@ async function generateKeyPair(selection: string): Promise<void> {
 
     addKeyMaterial(keyMaterial);
     setNotice(`Generated ${recognizeKeyMaterial(keyMaterial).label}.`);
+    logApi('WebCrypto.generateKey', `Generated ${recognizeKeyMaterial(keyMaterial).label}.`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi('WebCrypto.generateKey', error instanceof Error ? error.message : String(error), 'error');
   } finally {
     setBusy(false);
   }
@@ -599,6 +742,7 @@ async function openPkcs12File(file: File, password: string): Promise<void> {
 
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
+    logApi('PKCS#12.open', `Reading ${file.name} (${bytes.byteLength} bytes).`);
     const openedKeys = (await readPkcs12Keys(bytes, password, { sourceName: file.name, createId: createKeyId })).map((key) => ({
       ...key,
       label: key.label || getDefaultKeyLabel(key)
@@ -608,22 +752,39 @@ async function openPkcs12File(file: File, password: string): Promise<void> {
 
     const suffix = openedKeys.length === 1 ? '' : 's';
     setNotice(`Opened ${openedKeys.length} key${suffix} from ${file.name}.`);
+    logApi('PKCS#12.open', `Opened ${openedKeys.length} key${suffix} from ${file.name}.`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi('PKCS#12.open', error instanceof Error ? error.message : String(error), 'error');
   } finally {
     setBusy(false);
   }
 }
 
 async function addCertificateFile(keyId: string, file: File): Promise<void> {
+  await addCertificateBytes(keyId, await readCertificateFile(file), file.name);
+}
+
+async function addCertificateFromClipboard(keyId: string, format: 'pem' | 'hex'): Promise<void> {
+  try {
+    const text = await readTextFromClipboard();
+    const certificateDer = format === 'pem' ? readCertificatePemText(text) : getPkiStudioCore().hexToBytes(text);
+    logApi(`Clipboard.readText.${format.toUpperCase()}`, `Decoded certificate DER (${certificateDer.byteLength} bytes).`);
+    await addCertificateBytes(keyId, certificateDer, `clipboard ${format.toUpperCase()}`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi(`Clipboard.readText.${format.toUpperCase()}`, error instanceof Error ? error.message : String(error), 'error');
+  }
+}
+
+async function addCertificateBytes(keyId: string, certificateDer: Uint8Array, sourceName: string): Promise<void> {
   const keyMaterial = keyMaterials.find((material) => material.id === keyId);
   if (!keyMaterial) return;
 
   setBusy(true);
-  setNotice(`Adding ${file.name}...`);
+  setNotice(`Adding Certificate from ${sourceName}...`);
 
   try {
-    const certificateDer = await readCertificateFile(file);
     const certificate = Certificate.fromBER(toArrayBuffer(certificateDer));
     const certificatePublicKeyDer = new Uint8Array(certificate.subjectPublicKeyInfo.toSchema().toBER(false));
     const match = await certificateMatchesKeyMaterial(keyMaterial, certificatePublicKeyDer);
@@ -635,9 +796,11 @@ async function addCertificateFile(keyId: string, file: File): Promise<void> {
     selectedNode = { keyId: keyMaterial.id, kind: 'certificate' };
     renderKeyTree();
     showSelectedNode();
-    setNotice(`${match ? 'Added' : 'Applied'} Certificate from ${file.name}.`);
+    setNotice(`${match ? 'Added' : 'Applied'} Certificate from ${sourceName}.`);
+    logApi('Certificate.load', `${match ? 'Added' : 'Applied'} certificate from ${sourceName} (${certificateDer.byteLength} bytes).`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi('Certificate.load', error instanceof Error ? error.message : String(error), 'error');
   } finally {
     setBusy(false);
   }
@@ -649,12 +812,15 @@ async function savePkcs12File(keyIds: string[], password: string): Promise<void>
 
   try {
     const selectedKeys = keyIds.map((keyId) => keyMaterials.find((material) => material.id === keyId)).filter((material): material is KeyMaterial => Boolean(material));
+    logApi('PKCS#12.save', `Creating PKCS#12 for ${selectedKeys.length} key pair${selectedKeys.length === 1 ? '' : 's'}.`);
     const bytes = await writePkcs12Keys(selectedKeys, password);
     const fileName = getPkcs12FileName(selectedKeys);
     await saveBytesToFile(bytes, fileName);
     setNotice(`Saved ${selectedKeys.length} key pair${selectedKeys.length === 1 ? '' : 's'} to ${fileName}.`);
+    logApi('PKCS#12.save', `Saved ${fileName} (${bytes.byteLength} bytes).`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi('PKCS#12.save', error instanceof Error ? error.message : String(error), 'error');
   } finally {
     setBusy(false);
   }
@@ -663,8 +829,12 @@ async function savePkcs12File(keyIds: string[], password: string): Promise<void>
 async function readCertificateFile(file: File): Promise<Uint8Array> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-  const pemMatch = /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/i.exec(text);
-  if (!pemMatch) return bytes;
+  return /-----BEGIN CERTIFICATE-----/i.test(text) ? readCertificatePemText(text) : bytes;
+}
+
+function readCertificatePemText(text: string): Uint8Array {
+  const pemMatch = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/i.exec(text);
+  if (!pemMatch) throw new Error('Certificate PEM was not found.');
   return getPkiStudioCore().decodePem(pemMatch[0]);
 }
 
@@ -682,13 +852,17 @@ async function verifyPrivateKeyMatchesPublicKey(privateKeyDer: Uint8Array, publi
   try {
     const data = new TextEncoder().encode('Private Key Gadgets certificate check');
     const algorithm = getKeyPairCheckAlgorithm(info);
+    logApi('WebCrypto.verify', `Checking certificate public key against ${info.label} private key.`);
     const [privateKey, publicKey] = await Promise.all([
       crypto.subtle.importKey('pkcs8', toArrayBuffer(privateKeyDer), algorithm.importAlgorithm, false, ['sign']),
       crypto.subtle.importKey('spki', toArrayBuffer(publicKeyDer), algorithm.importAlgorithm, false, ['verify'])
     ]);
     const signature = await crypto.subtle.sign(algorithm.signAlgorithm, privateKey, data);
-    return crypto.subtle.verify(algorithm.signAlgorithm, publicKey, signature, data);
-  } catch {
+    const verified = await crypto.subtle.verify(algorithm.signAlgorithm, publicKey, signature, data);
+    logApi('WebCrypto.verify', verified ? 'Certificate public key matched.' : 'Certificate public key did not match.', verified ? 'ok' : 'error');
+    return verified;
+  } catch (error) {
+    logApi('WebCrypto.verify', error instanceof Error ? error.message : String(error), 'error');
     return false;
   }
 }
@@ -802,6 +976,7 @@ async function saveBytesToFile(bytes: Uint8Array, fileName: string): Promise<voi
   const blob = new Blob([toArrayBuffer(bytes)], { type: 'application/x-pkcs12' });
 
   if (window.showSaveFilePicker) {
+    logApi('FileSystem.showSaveFilePicker', `Requesting save handle for ${fileName}.`);
     const handle = await window.showSaveFilePicker({
       suggestedName: fileName,
       types: [{ description: 'PKCS#12 files', accept: { 'application/x-pkcs12': ['.p12', '.pfx'] } }]
@@ -809,9 +984,11 @@ async function saveBytesToFile(bytes: Uint8Array, fileName: string): Promise<voi
     const writable = await handle.createWritable();
     await writable.write(blob);
     await writable.close();
+    logApi('FileSystem.write', `Wrote ${bytes.byteLength} bytes to ${handle.name || fileName}.`);
     return;
   }
 
+  logApi('Browser.download', `Downloading ${fileName} (${bytes.byteLength} bytes).`);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -821,7 +998,7 @@ async function saveBytesToFile(bytes: Uint8Array, fileName: string): Promise<voi
 }
 
 function requestCsrOptions(keyId: string): Promise<{ subjectDn: string; subjectBytes: Uint8Array; hashAlgorithm: string } | null> {
-  const subjectSource = getCsrSubjectDnSource(keyId);
+  const subjectSource = getSubjectDnSource(keyId, 'creating a CSR');
   csrSubjectInput.value = subjectSource.subjectDn;
   csrHashSelect.innerHTML = CSR_HASH_ALGORITHMS.map((hash) => `<option value="${hash}">${hash}</option>`).join('');
   csrHashSelect.disabled = !subjectSource.subjectBytes;
@@ -853,6 +1030,47 @@ function requestCsrOptions(keyId: string): Promise<{ subjectDn: string; subjectB
     csrDialog.showModal();
     if (subjectSource.subjectBytes) csrHashSelect.focus();
     else csrDialog.querySelector<HTMLButtonElement>('button[value="cancel"]')?.focus();
+  });
+}
+
+function requestSelfSignedCertOptions(keyId: string): Promise<{ subjectDn: string; subjectBytes: Uint8Array; hashAlgorithm: string; validityDays: number; keyUsages: string[] } | null> {
+  const subjectSource = getSubjectDnSource(keyId, 'creating a self-signed certificate');
+  selfSignedCertSubjectInput.value = subjectSource.subjectDn;
+  selfSignedCertHashSelect.innerHTML = CSR_HASH_ALGORITHMS.map((hash) => `<option value="${hash}">${hash}</option>`).join('');
+  selfSignedCertHashSelect.disabled = !subjectSource.subjectBytes;
+  selfSignedCertValidityDaysInput.value = '365';
+  selfSignedCertValidityDaysInput.disabled = !subjectSource.subjectBytes;
+  selfSignedCertSubjectError.textContent = subjectSource.error ?? '';
+  selfSignedCertSubjectError.hidden = !subjectSource.error;
+  selfSignedCertKeyUsageList.innerHTML = CERTIFICATE_KEY_USAGES.map((usage) => `
+    <label class="checkbox-list-item">
+      <input type="checkbox" name="certificate-key-usage" value="${escapeHtml(usage.id)}"${usage.defaultChecked ? ' checked' : ''}${subjectSource.subjectBytes ? '' : ' disabled'} />
+      <span><strong>${escapeHtml(usage.label)}</strong></span>
+    </label>
+  `).join('');
+  const createButton = selfSignedCertDialog.querySelector<HTMLButtonElement>('button[value="create"]');
+  if (createButton) createButton.disabled = !subjectSource.subjectBytes;
+  selfSignedCertDialog.returnValue = '';
+
+  return new Promise((resolve) => {
+    selfSignedCertDialog.addEventListener(
+      'close',
+      () => {
+        if (selfSignedCertDialog.returnValue !== 'create' || !subjectSource.subjectBytes) {
+          resolve(null);
+          return;
+        }
+
+        const validityDays = Number.parseInt(selfSignedCertValidityDaysInput.value, 10);
+        const keyUsages = [...selfSignedCertKeyUsageList.querySelectorAll<HTMLInputElement>('input[name="certificate-key-usage"]:checked')].map((input) => input.value);
+        resolve({ subjectDn: subjectSource.subjectDn, subjectBytes: subjectSource.subjectBytes, hashAlgorithm: selfSignedCertHashSelect.value, validityDays: Number.isFinite(validityDays) && validityDays > 0 ? validityDays : 365, keyUsages });
+      },
+      { once: true }
+    );
+
+    selfSignedCertDialog.showModal();
+    if (subjectSource.subjectBytes) selfSignedCertHashSelect.focus();
+    else selfSignedCertDialog.querySelector<HTMLButtonElement>('button[value="cancel"]')?.focus();
   });
 }
 
@@ -888,6 +1106,7 @@ async function createCsr(keyId: string, subjectDn: string, subjectBytes: Uint8Ar
     if (!keyMaterial.privateKeyDer || !keyMaterial.publicKeyDer) throw new Error('PrivateKey and PublicKey are required to create a CSR.');
 
     const subject = parseSubjectDnBytes(subjectBytes);
+    logApi('CSR.create', `Importing ${info.label} signing keys for ${hashAlgorithm}.`);
     const [privateKey, publicKey] = await Promise.all([
       importSigningPrivateKey(keyMaterial.privateKeyDer, info, hashAlgorithm),
       importSigningPublicKey(keyMaterial.publicKeyDer, info, hashAlgorithm)
@@ -897,6 +1116,7 @@ async function createCsr(keyId: string, subjectDn: string, subjectBytes: Uint8Ar
     request.subject = subject;
     await request.subjectPublicKeyInfo.importKey(publicKey);
     request.attributes = [];
+    logApi('CSR.sign', `Signing CSR for ${subjectDn}.`);
     await request.sign(privateKey, hashAlgorithm);
 
     const existing = keyMaterial.csrs?.[0];
@@ -915,11 +1135,104 @@ async function createCsr(keyId: string, subjectDn: string, subjectBytes: Uint8Ar
     renderKeyTree();
     showSelectedNode();
     setNotice(`${existing ? 'Updated' : 'Created'} CSR for ${subjectDn}.`);
+    logApi('CSR.create', `${existing ? 'Updated' : 'Created'} CSR (${csr.bytes.byteLength} bytes).`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi('CSR.create', error instanceof Error ? error.message : String(error), 'error');
   } finally {
     setBusy(false);
   }
+}
+
+async function createSelfSignedCertificate(keyId: string, subjectDn: string, subjectBytes: Uint8Array, hashAlgorithm: string, validityDays: number, keyUsages: string[]): Promise<void> {
+  const keyMaterial = keyMaterials.find((material) => material.id === keyId);
+  if (!keyMaterial) return;
+
+  setBusy(true);
+  setNotice('Creating self-signed Certificate...');
+
+  try {
+    const info = recognizeKeyMaterial(keyMaterial);
+    if (info.family !== 'RSA' && info.family !== 'EC') throw new Error(`${info.label} is not supported for certificate signing yet.`);
+    if (!keyMaterial.privateKeyDer || !keyMaterial.publicKeyDer) throw new Error('PrivateKey and PublicKey are required to create a self-signed certificate.');
+
+    const subject = parseSubjectDnBytes(subjectBytes);
+    const notBefore = new Date();
+    const notAfter = new Date(notBefore.getTime() + validityDays * 24 * 60 * 60 * 1000);
+
+    logApi('Certificate.selfSign', `Importing ${info.label} signing keys for ${hashAlgorithm}; validity ${validityDays} days.`);
+    const [privateKey, publicKey] = await Promise.all([
+      importSigningPrivateKey(keyMaterial.privateKeyDer, info, hashAlgorithm),
+      importSigningPublicKey(keyMaterial.publicKeyDer, info, hashAlgorithm)
+    ]);
+
+    const certificate = new Certificate();
+    certificate.version = 2;
+    certificate.serialNumber = new asn1js.Integer({ valueHex: toArrayBuffer(createCertificateSerialNumber()) });
+    certificate.issuer = subject;
+    certificate.subject = subject;
+    certificate.notBefore = new Time({ type: 0, value: notBefore });
+    certificate.notAfter = new Time({ type: 0, value: notAfter });
+    await certificate.subjectPublicKeyInfo.importKey(publicKey);
+    certificate.extensions = createSelfSignedCertificateExtensions(keyUsages);
+
+    logApi('Certificate.sign', `Signing self-signed certificate for ${subjectDn}.`);
+    await certificate.sign(privateKey, hashAlgorithm);
+
+    const certificateDer = new Uint8Array(certificate.toSchema(true).toBER(false));
+    if (keyMaterial.certificateDer && !window.confirm('Certificate item already exists. Overwrite it?')) return;
+
+    keyMaterial.certificateDer = certificateDer;
+    selectedNode = { keyId: keyMaterial.id, kind: 'certificate' };
+    renderKeyTree();
+    showSelectedNode();
+    setNotice(`Created self-signed Certificate for ${subjectDn}.`);
+    logApi('Certificate.selfSign', `Created self-signed certificate (${certificateDer.byteLength} bytes).`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi('Certificate.selfSign', error instanceof Error ? error.message : String(error), 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+function createSelfSignedCertificateExtensions(keyUsages: string[]): Extension[] {
+  const selected = new Set(keyUsages);
+  const basicConstraints = new BasicConstraints({ cA: selected.has('keyCertSign') });
+  const keyUsage = createKeyUsageBitString(selected);
+
+  return [
+    new Extension({
+      extnID: '2.5.29.19',
+      critical: selected.has('keyCertSign'),
+      extnValue: basicConstraints.toSchema().toBER(false),
+      parsedValue: basicConstraints
+    }),
+    new Extension({
+      extnID: '2.5.29.15',
+      critical: true,
+      extnValue: keyUsage.toBER(false),
+      parsedValue: keyUsage
+    })
+  ];
+}
+
+function createKeyUsageBitString(selected: Set<string>): asn1js.BitString {
+  const highestBit = CERTIFICATE_KEY_USAGES.reduce((highest, usage) => selected.has(usage.id) ? Math.max(highest, usage.bit) : highest, 0);
+  const value = new Uint8Array(Math.floor(highestBit / 8) + 1);
+  for (const usage of CERTIFICATE_KEY_USAGES) {
+    if (!selected.has(usage.id)) continue;
+    value[Math.floor(usage.bit / 8)] |= 0x80 >> (usage.bit % 8);
+  }
+  return new asn1js.BitString({ valueHex: toArrayBuffer(value) });
+}
+
+function createCertificateSerialNumber(): Uint8Array {
+  const serial = new Uint8Array(16);
+  crypto.getRandomValues(serial);
+  serial[0] &= 0x7f;
+  if (serial.every((byte) => byte === 0)) serial[15] = 1;
+  return serial;
 }
 
 function createSubjectDn(keyId: string, subjectDn: string): void {
@@ -978,11 +1291,11 @@ function getCertificateSubjectDnBytes(certificateDer: Uint8Array): Uint8Array {
   return new Uint8Array(certificate.subject.toSchema().toBER(false));
 }
 
-function getCsrSubjectDnSource(keyId: string): { subjectDn: string; subjectBytes?: Uint8Array; error?: string } {
+function getSubjectDnSource(keyId: string, action: string): { subjectDn: string; subjectBytes?: Uint8Array; error?: string } {
   const keyMaterial = keyMaterials.find((material) => material.id === keyId);
   const subjectDn = keyMaterial?.subjectDns?.at(-1);
   if (!subjectDn) {
-    return { subjectDn: '(SubjectDN item is missing)', error: 'SubjectDN item is required before creating a CSR.' };
+    return { subjectDn: '(SubjectDN item is missing)', error: `SubjectDN item is required before ${action}.` };
   }
 
   try {
@@ -1036,11 +1349,27 @@ function escapeDnText(value: string): string {
 }
 
 function listenForViewerChanges(instance: PkiStudioInstance): void {
-  instance.root?.addEventListener('pkistudio-change', (event) => {
-    if (!selectedNode || selectedNode.kind !== 'subjectdn') return;
-    const bytes = event instanceof CustomEvent && event.detail?.bytes instanceof Uint8Array ? event.detail.bytes : instance.getBytes?.();
-    if (!bytes) return;
-    updateSelectedSubjectDnBytes(bytes);
+  if (!instance.root || !instance.getNodeBytes) return;
+
+  instance.root.addEventListener('click', guardReadonlyViewerAction, true);
+  instance.root.addEventListener('submit', () => scheduleSelectedSubjectDnRefresh(instance), true);
+  instance.root.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    if (!event.target.closest('[data-node-action="delete"], [data-about-action], [data-edit-action="cancel"], [data-time-action="cancel"], [data-octet-action="cancel"], [data-der-action="cancel"]')) {
+      scheduleSelectedSubjectDnRefresh(instance);
+    }
+  }, true);
+}
+
+function scheduleSelectedSubjectDnRefresh(instance: PkiStudioInstance): void {
+  window.setTimeout(() => {
+    if (!selectedNode || selectedNode.kind !== 'subjectdn' || !instance.getNodeBytes) return;
+
+    try {
+      updateSelectedSubjectDnBytes(instance.getNodeBytes('1'));
+    } catch {
+      // Ignore transient viewer states such as a deleted root node.
+    }
   });
 }
 
@@ -1088,14 +1417,19 @@ function deleteChildNode(target: SelectedKeyNode): void {
   setNotice(`Deleted ${getDeleteLabel(keyMaterial, target)}.`);
 }
 
-async function copyCsrAsPem(target: SelectedKeyNode): Promise<void> {
+async function copyCertificateAsPem(keyId: string): Promise<void> {
+  await copySelectedBytesAsPem('CERTIFICATE', 'Certificate', { keyId, kind: 'certificate' });
+}
+
+async function copySelectedBytesAsPem(pemLabel: string, itemLabel: string, target: SelectedKeyNode): Promise<void> {
   const keyMaterial = keyMaterials.find((material) => material.id === target.keyId);
-  const csr = keyMaterial?.csrs?.find((item) => item.id === target.csrId);
-  if (!csr) return;
+  if (!keyMaterial) return;
+  const bytes = getSelectedNodeBytes(keyMaterial, target);
+  if (!bytes) return;
 
   try {
-    await writeTextToClipboard(derToPem('CERTIFICATE REQUEST', csr.bytes));
-    setNotice(`Copied ${csr.label} as PEM.`);
+    await writeTextToClipboard(derToPem(pemLabel, bytes));
+    setNotice(`Copied ${itemLabel} as PEM.`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
   }
@@ -1104,6 +1438,7 @@ async function copyCsrAsPem(target: SelectedKeyNode): Promise<void> {
 async function writeTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
+    logApi('Clipboard.writeText', `Wrote ${text.length} characters.`);
     return;
   }
 
@@ -1117,6 +1452,17 @@ async function writeTextToClipboard(text: string): Promise<void> {
   const copied = document.execCommand('copy');
   textarea.remove();
   if (!copied) throw new Error('Could not copy CSR PEM to the clipboard.');
+  logApi('Clipboard.execCommand', `Copied ${text.length} characters.`);
+}
+
+async function readTextFromClipboard(): Promise<string> {
+  if (!navigator.clipboard?.readText || !window.isSecureContext) {
+    throw new Error('Clipboard reading is not available in this browser context.');
+  }
+
+  const text = await navigator.clipboard.readText();
+  logApi('Clipboard.readText', `Read ${text.length} characters.`);
+  return text;
 }
 
 function derToPem(label: string, bytes: Uint8Array): string {
@@ -1160,6 +1506,7 @@ function showBytes(bytes: Uint8Array, notice: string): void {
   }
 
   viewer.loadBytes(bytes, notice);
+  applyViewerEditState();
 }
 
 function addKeyMaterial(keyMaterial: KeyMaterial): void {
@@ -1186,18 +1533,68 @@ function selectKeyNode(keyId: string, kind: KeyNodeKind, csrId?: string, subject
 }
 
 function showSelectedNode(): void {
-  if (!selectedNode) return;
+  if (!selectedNode) {
+    applyViewerEditState();
+    return;
+  }
 
   const keyMaterial = keyMaterials.find((material) => material.id === selectedNode?.keyId);
-  if (!keyMaterial) return;
+  if (!keyMaterial) {
+    applyViewerEditState();
+    return;
+  }
 
   const bytes = getSelectedNodeBytes(keyMaterial, selectedNode);
-  if (!bytes) return;
+  if (!bytes) {
+    applyViewerEditState();
+    return;
+  }
 
   const info = recognizeKeyMaterial(keyMaterial);
   const format = getSelectedNodeFormat(selectedNode.kind);
   const label = getSelectedNodeLabel(keyMaterial, selectedNode);
   showBytes(bytes, `${info.label} ${label} (${format})`);
+}
+
+function guardReadonlyViewerAction(event: Event): void {
+  if (isViewerEditableSelection()) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest<HTMLButtonElement>('button[data-action], button[data-node-action]');
+  if (!button || !isReadonlyViewerAction(button)) return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  setNotice('Viewer editing is available only while a SubjectDN item is selected.', true);
+}
+
+function applyViewerEditState(): void {
+  if (!viewer?.root) return;
+  const editable = isViewerEditableSelection();
+  const stateElement = getViewerStateElement(viewer.root);
+  stateElement?.classList.toggle('pvkgadgets-viewer-readonly', !editable);
+
+  for (const button of viewer.root.querySelectorAll<HTMLButtonElement>('button[data-action], button[data-node-action]')) {
+    if (!isReadonlyViewerAction(button)) continue;
+    button.disabled = !editable;
+    button.title = editable ? '' : 'Viewer editing is available only while a SubjectDN item is selected.';
+  }
+}
+
+function isViewerEditableSelection(): boolean {
+  return selectedNode?.kind === 'subjectdn';
+}
+
+function getViewerStateElement(root: ViewerRoot): HTMLElement | null {
+  if (root instanceof ShadowRoot) return root.host instanceof HTMLElement ? root.host : null;
+  return root instanceof HTMLElement ? root : null;
+}
+
+function isReadonlyViewerAction(button: HTMLButtonElement): boolean {
+  const action = button.dataset.action;
+  if (action === 'toggle-load-menu' || action === 'open' || action === 'load-clipboard-pem' || action === 'load-clipboard-hex' || action === 'close') return true;
+
+  const nodeAction = button.dataset.nodeAction;
+  return nodeAction === 'edit' || nodeAction === 'delete' || nodeAction === 'add-child' || nodeAction === 'insert-before';
 }
 
 function renderKeyTree(): void {
@@ -1349,6 +1746,118 @@ function setNotice(message: string, isError = false): void {
   formNotice.classList.toggle('error', isError);
 }
 
+function logApi(operation: string, detail: string, status: 'ok' | 'error' = 'ok'): void {
+  const entry = document.createElement('div');
+  entry.className = `api-log-entry ${status}`;
+  const timestamp = new Date();
+
+  const time = document.createElement('time');
+  time.dateTime = timestamp.toISOString();
+  time.textContent = formatApiLogTimestamp(timestamp);
+
+  const operationElement = document.createElement('span');
+  operationElement.className = 'api-log-operation';
+  operationElement.textContent = operation;
+
+  const detailElement = document.createElement('span');
+  detailElement.className = 'api-log-detail';
+  detailElement.textContent = detail;
+
+  entry.append(time, operationElement, detailElement);
+  apiLogList.append(entry);
+  while (apiLogList.childElementCount > MAX_API_LOG_ENTRIES) {
+    apiLogList.firstElementChild?.remove();
+  }
+  apiLogList.scrollTop = apiLogList.scrollHeight;
+}
+
+function formatApiLogTimestamp(date: Date): string {
+  const pad = (value: number, length = 2) => String(value).padStart(length, '0');
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
+function setupPaneResizer(): void {
+  const savedWidthText = localStorage.getItem('pvkgadgets.keyPanelWidth');
+  const savedWidth = savedWidthText === null ? NaN : Number(savedWidthText);
+  setKeyPanelWidth(Number.isFinite(savedWidth) ? savedWidth : 360, false);
+
+  paneResizer.addEventListener('pointerdown', (event) => {
+    if (isSingleColumnLayout()) return;
+
+    event.preventDefault();
+    paneResizer.setPointerCapture(event.pointerId);
+    workspace.classList.add('resizing');
+    updateKeyPanelWidthFromPointer(event.clientX);
+  });
+
+  paneResizer.addEventListener('pointermove', (event) => {
+    if (!paneResizer.hasPointerCapture(event.pointerId)) return;
+    updateKeyPanelWidthFromPointer(event.clientX);
+  });
+
+  paneResizer.addEventListener('pointerup', finishPaneResize);
+  paneResizer.addEventListener('pointercancel', finishPaneResize);
+
+  paneResizer.addEventListener('keydown', (event) => {
+    if (isSingleColumnLayout()) return;
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+
+    event.preventDefault();
+    const currentWidth = Number(getComputedStyle(workspace).getPropertyValue('--key-panel-width').replace('px', '')) || 360;
+    if (event.key === 'Home') setKeyPanelWidth(280);
+    else if (event.key === 'End') setKeyPanelWidth(getPaneWidthBounds().max);
+    else setKeyPanelWidth(currentWidth + (event.key === 'ArrowLeft' ? -24 : 24));
+  });
+
+  window.addEventListener('resize', () => {
+    if (isSingleColumnLayout()) return;
+    const currentWidth = Number(getComputedStyle(workspace).getPropertyValue('--key-panel-width').replace('px', '')) || 360;
+    setKeyPanelWidth(currentWidth, false);
+  });
+}
+
+function finishPaneResize(event: PointerEvent): void {
+  if (paneResizer.hasPointerCapture(event.pointerId)) paneResizer.releasePointerCapture(event.pointerId);
+  workspace.classList.remove('resizing');
+}
+
+function updateKeyPanelWidthFromPointer(clientX: number): void {
+  const bounds = getPaneWidthBounds();
+  setKeyPanelWidth(clientX - bounds.left);
+}
+
+function setKeyPanelWidth(width: number, persist = true): void {
+  const bounds = getPaneWidthBounds();
+  const clampedWidth = Math.round(Math.min(Math.max(width, bounds.min), bounds.max));
+  workspace.style.setProperty('--key-panel-width', `${clampedWidth}px`);
+  paneResizer.setAttribute('aria-valuemin', String(bounds.min));
+  paneResizer.setAttribute('aria-valuemax', String(bounds.max));
+  paneResizer.setAttribute('aria-valuenow', String(clampedWidth));
+  if (persist) localStorage.setItem('pvkgadgets.keyPanelWidth', String(clampedWidth));
+}
+
+function getPaneWidthBounds(): { left: number; min: number; max: number } {
+  const style = getComputedStyle(workspace);
+  const rect = workspace.getBoundingClientRect();
+  const paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+  const paddingRight = Number.parseFloat(style.paddingRight) || 0;
+  const borderLeft = Number.parseFloat(style.borderLeftWidth) || 0;
+  const columnGap = Number.parseFloat(style.columnGap) || 0;
+  const splitterWidth = paneResizer.getBoundingClientRect().width || 6;
+  const contentWidth = workspace.clientWidth - paddingLeft - paddingRight;
+  const min = 280;
+  const minViewerWidth = 420;
+  return {
+    left: rect.left + borderLeft + paddingLeft,
+    min,
+    max: Math.max(min, contentWidth - splitterWidth - (columnGap * 2) - minViewerWidth)
+  };
+}
+
+function isSingleColumnLayout(): boolean {
+  return window.matchMedia('(max-width: 820px)').matches;
+}
+
 function setPrivateKeyMenuOpen(open: boolean, keyId?: string, anchor?: HTMLElement): void {
   if (!open || !keyId || !anchor) {
     privateKeyMenu.hidden = true;
@@ -1365,6 +1874,8 @@ function setPrivateKeyMenuOpen(open: boolean, keyId?: string, anchor?: HTMLEleme
   const supported = Boolean(keyMaterial?.privateKeyDer && keyMaterial.publicKeyDer && (info?.family === 'RSA' || info?.family === 'EC'));
   newCsrMenuItem.disabled = !supported;
   newCsrMenuItem.title = supported ? '' : 'CSR creation currently supports RSA and EC signing keys.';
+  newSelfSignedCertMenuItem.disabled = !supported;
+  newSelfSignedCertMenuItem.title = supported ? '' : 'Self-signed certificate creation currently supports RSA and EC signing keys.';
 
   const rect = anchor.getBoundingClientRect();
   privateKeyMenu.style.left = `${rect.left}px`;
