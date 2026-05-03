@@ -10,7 +10,26 @@ type PkiStudioInstance = {
   root?: DocumentFragment | Element;
 };
 
+type PkiStudioCoreNode = {
+  tagClass: number;
+  tagNumber: number;
+  constructed: boolean;
+  valueStart: number;
+  valueEnd: number;
+  end: number;
+  children: PkiStudioCoreNode[];
+};
+
+type PkiStudioCoreApi = {
+  base64ToBytes: (base64: string) => Uint8Array;
+  bytesToBase64: (bytes: Uint8Array) => string;
+  decodeOid: (bytes: Uint8Array) => string;
+  decodePem: (text: string) => Uint8Array;
+  parseElements: (bytes: Uint8Array, offset?: number, end?: number, depth?: number) => PkiStudioCoreNode[];
+};
+
 type PkiStudioApi = {
+  core?: PkiStudioCoreApi | null;
   init: (options: { mount: string | Element; oidUrl?: string; shadowRoot?: boolean; newWindowUrl?: string }) => PkiStudioInstance;
 };
 
@@ -26,6 +45,7 @@ type SaveFileHandle = {
 declare global {
   interface Window {
     PkiStudio?: PkiStudioApi;
+    PkiStudioCore?: PkiStudioCoreApi;
     showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<SaveFileHandle>;
   }
 }
@@ -69,15 +89,7 @@ type RecognizedKeyInfo = {
   namedCurve?: string;
 };
 
-type DerNode = {
-  tagClass: number;
-  tagNumber: number;
-  constructed: boolean;
-  contentStart: number;
-  contentEnd: number;
-  end: number;
-  children: DerNode[];
-};
+type DerNode = PkiStudioCoreNode;
 
 type KeyAlgorithmCandidate = {
   id: string;
@@ -653,10 +665,7 @@ async function readCertificateFile(file: File): Promise<Uint8Array> {
   const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   const pemMatch = /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/i.exec(text);
   if (!pemMatch) return bytes;
-
-  const base64 = pemMatch[1].replace(/\s+/g, '');
-  if (!base64) throw new Error('Certificate PEM did not contain base64 data.');
-  return base64ToBytes(base64);
+  return getPkiStudioCore().decodePem(pemMatch[0]);
 }
 
 async function certificateMatchesKeyMaterial(keyMaterial: KeyMaterial, certificatePublicKeyDer: Uint8Array): Promise<boolean> {
@@ -1111,22 +1120,9 @@ async function writeTextToClipboard(text: string): Promise<void> {
 }
 
 function derToPem(label: string, bytes: Uint8Array): string {
-  const base64 = bytesToBase64(bytes);
+  const base64 = getPkiStudioCore().bytesToBase64(bytes);
   const lines = base64.match(/.{1,64}/g) ?? [];
   return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
 }
 
 function getFirstSelectableNode(keyMaterial: KeyMaterial): SelectedKeyNode | null {
@@ -1706,29 +1702,29 @@ function parseAlgorithmIdentifier(bytes: Uint8Array, node: DerNode): { oid: stri
   if (!oidNode || oidNode.tagClass !== 0 || oidNode.tagNumber !== 6) throw new Error('Missing algorithm OID');
   const parameterNode = node.children[1];
   return {
-    oid: decodeOid(bytes.slice(oidNode.contentStart, oidNode.contentEnd)),
+    oid: getPkiStudioCore().decodeOid(bytes.slice(oidNode.valueStart, oidNode.valueEnd)),
     parameters:
       parameterNode?.tagClass === 0 && parameterNode.tagNumber === 6
-        ? decodeOid(bytes.slice(parameterNode.contentStart, parameterNode.contentEnd))
+        ? getPkiStudioCore().decodeOid(bytes.slice(parameterNode.valueStart, parameterNode.valueEnd))
         : null
   };
 }
 
 function readRsaPublicKeyBits(bytes: Uint8Array, bitString: DerNode): number | null {
-  if (bitString.tagClass !== 0 || bitString.tagNumber !== 3 || bitString.contentEnd <= bitString.contentStart) return null;
-  const unusedBits = bytes[bitString.contentStart];
+  if (bitString.tagClass !== 0 || bitString.tagNumber !== 3 || bitString.valueEnd <= bitString.valueStart) return null;
+  const unusedBits = bytes[bitString.valueStart];
   if (unusedBits !== 0) return null;
 
-  const rsaPublicKeyBytes = bytes.slice(bitString.contentStart + 1, bitString.contentEnd);
+  const rsaPublicKeyBytes = bytes.slice(bitString.valueStart + 1, bitString.valueEnd);
   const rsaPublicKey = parseDer(rsaPublicKeyBytes);
   const modulus = rsaPublicKey.children[0];
   if (!modulus || modulus.tagClass !== 0 || modulus.tagNumber !== 2) return null;
 
-  let offset = modulus.contentStart;
-  while (offset < modulus.contentEnd - 1 && rsaPublicKeyBytes[offset] === 0) offset += 1;
+  let offset = modulus.valueStart;
+  while (offset < modulus.valueEnd - 1 && rsaPublicKeyBytes[offset] === 0) offset += 1;
   const firstByte = rsaPublicKeyBytes[offset];
   const firstByteBits = firstByte === 0 ? 0 : 8 - Math.clz32(firstByte) + 24;
-  return (modulus.contentEnd - offset - 1) * 8 + firstByteBits;
+  return (modulus.valueEnd - offset - 1) * 8 + firstByteBits;
 }
 
 function curveNameFromOid(oid: string): string | undefined {
@@ -1741,75 +1737,15 @@ function curveNameFromOid(oid: string): string | undefined {
 }
 
 function parseDer(bytes: Uint8Array): DerNode {
-  const { node, offset } = parseDerNode(bytes, 0, bytes.length);
-  if (offset !== bytes.length) throw new Error('DER input has trailing data');
-  return node;
+  const nodes = getPkiStudioCore().parseElements(bytes, 0, bytes.length);
+  if (nodes.length !== 1) throw new Error('DER input must contain exactly one element');
+  return nodes[0];
 }
 
-function parseDerNode(bytes: Uint8Array, offset: number, end: number): { node: DerNode; offset: number } {
-  if (offset + 2 > end) throw new Error('Truncated DER element');
-
-  const identifier = bytes[offset++];
-  const tagClass = identifier >> 6;
-  const constructed = (identifier & 0x20) !== 0;
-  let tagNumber = identifier & 0x1f;
-  if (tagNumber === 0x1f) throw new Error('High-tag-number DER elements are not supported yet');
-
-  const firstLength = bytes[offset++];
-  let length = firstLength;
-  if ((firstLength & 0x80) !== 0) {
-    const lengthOctets = firstLength & 0x7f;
-    if (lengthOctets === 0) throw new Error('Indefinite length is not valid DER');
-    if (lengthOctets > 4 || offset + lengthOctets > end) throw new Error('Invalid DER length');
-    length = 0;
-    for (let index = 0; index < lengthOctets; index += 1) length = length * 256 + bytes[offset++];
-  }
-
-  const contentStart = offset;
-  const contentEnd = contentStart + length;
-  if (contentEnd > end) throw new Error('DER length exceeds input');
-
-  const children: DerNode[] = [];
-  if (constructed) {
-    let childOffset = contentStart;
-    while (childOffset < contentEnd) {
-      const child = parseDerNode(bytes, childOffset, contentEnd);
-      children.push(child.node);
-      childOffset = child.offset;
-    }
-  }
-
-  return {
-    node: {
-      tagClass,
-      tagNumber,
-      constructed,
-      contentStart,
-      contentEnd,
-      end: contentEnd,
-      children
-    },
-    offset: contentEnd
-  };
-}
-
-function decodeOid(bytes: Uint8Array): string {
-  if (bytes.length === 0) throw new Error('Empty OID');
-
-  const first = bytes[0];
-  const parts = [Math.floor(first / 40), first % 40];
-  let value = 0;
-
-  for (const byte of bytes.slice(1)) {
-    value = value * 128 + (byte & 0x7f);
-    if ((byte & 0x80) === 0) {
-      parts.push(value);
-      value = 0;
-    }
-  }
-
-  if (value !== 0) throw new Error('Truncated OID');
-  return parts.join('.');
+function getPkiStudioCore(): PkiStudioCoreApi {
+  const core = window.PkiStudio?.core ?? window.PkiStudioCore;
+  if (!core) throw new Error('pkistudiojs CoreAPI could not be loaded.');
+  return core;
 }
 
 function createKeyId(): string {
