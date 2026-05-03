@@ -46,6 +46,12 @@ type SaveFileHandle = {
 };
 
 declare global {
+  interface ImportMeta {
+    readonly env: {
+      readonly BASE_URL: string;
+    };
+  }
+
   interface Window {
     PkiStudio?: PkiStudioApi;
     PkiStudioCore?: PkiStudioCoreApi;
@@ -124,6 +130,8 @@ const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
   ...createNamedCurveCandidates('X25519', ['X25519'], ['deriveBits']),
   ...createNamedCurveCandidates('X448', ['X448'], ['deriveBits'])
 ];
+
+const APP_BASE_URL = import.meta.env.BASE_URL;
 
 const EMBEDDED_VIEWER_STYLES = `
 :host {
@@ -431,8 +439,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   viewer = window.PkiStudio.init({
     mount: '#viewerMount',
-    oidUrl: '/vendor/pkistudiojs/oids.json',
-    newWindowUrl: '/viewer.html'
+    oidUrl: `${APP_BASE_URL}vendor/pkistudiojs/oids.json`,
+    newWindowUrl: `${APP_BASE_URL}viewer.html`
   });
   logApi('pkistudiojs.init', `Viewer ${window.PkiStudio.version ?? '(unknown version)'} mounted.`);
   applyEmbeddedViewerStyles(viewer);
