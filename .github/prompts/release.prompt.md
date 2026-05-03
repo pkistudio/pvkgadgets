@@ -1,5 +1,5 @@
 ---
-description: "Use when: running the pvkgadgets issue-to-release workflow, including issue creation, branch work, PR, merge, tag, release, and Actions checks."
+description: "Use when: running the pvkgadgets issue-to-release workflow, including issue creation, branch work, PR, merge, tag, GitHub Release, GitHub Pages deployment, and Actions checks."
 name: "pvkgadgets release workflow"
 argument-hint: "[version|TBD] [#issue] <short feature or fix summary>"
 agent: "agent"
@@ -7,7 +7,7 @@ agent: "agent"
 
 # pvkgadgets Release Workflow
 
-Run the standard pvkgadgets release workflow from issue creation through GitHub Release publication.
+Run the standard pvkgadgets release workflow from issue creation through GitHub Release publication and GitHub Pages deployment.
 
 Expected invocation examples:
 
@@ -123,14 +123,21 @@ Derive these from the invocation when possible:
     - Create a GitHub Release named `vX.Y.Z` with release notes summarizing user-facing changes and referencing the issue.
     - Mark it as the latest stable release, not draft and not prerelease, unless instructed otherwise.
 
-11. Confirm Final State
-    - Verify:
-      - PR is merged and closed.
-      - issue is closed as completed.
-      - tag exists on `main` HEAD.
-      - GitHub Release is published.
-      - relevant GitHub Actions completed or are still running.
-    - Final response must include issue, PR, release, tag, and any Actions status.
+11. Deploy GitHub Pages
+   - Confirm `.github/workflows/pages.yml` exists and deploys the Vite `dist` output to GitHub Pages.
+   - Confirm the Pages workflow is triggered by the release merge to `main`. If needed and the user has permission, trigger `Deploy GitHub Pages` manually with `workflow_dispatch`.
+   - Watch the Pages workflow until it succeeds, fails, or remains running long enough that it should be reported as pending.
+   - Confirm the deployed Pages URL from the `github-pages` environment or the workflow deployment output.
+   - If the workflow fails, report the failing job and log summary before stopping; do not publish extra tags or releases to retry.
+
+12. Confirm Final State
+   - Verify PR is merged and closed.
+   - Verify issue is closed as completed.
+   - Verify tag exists on `main` HEAD.
+   - Verify GitHub Release is published.
+   - Verify GitHub Pages deployment completed successfully or is clearly reported as pending/failed.
+   - Verify relevant GitHub Actions completed or are still running.
+   - Final response must include issue, PR, release, tag, Pages URL/deployment status, and any Actions status.
 
 ## Final Response Format
 
@@ -139,6 +146,7 @@ Keep the final response concise and include:
 - Issue link and state
 - PR link and merge state
 - Release link and tag
+- Pages URL and deployment status
 - Verification summary
 - Actions status
 - Any follow-up needed
