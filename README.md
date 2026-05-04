@@ -2,14 +2,14 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.0.6
+Current version: 0.0.7
 
 ## Features
 
 ### Key Pair Management
 
 - Detects key pair algorithms supported by the current browser through WebCrypto.
-- Generates supported key pairs from the New Key menu, including RSA, EC, Ed25519, and X25519 when available.
+- Generates supported key pairs from the New menu, including RSA, EC, Ed25519, and X25519 when available.
 - Normalizes duplicate WebCrypto variants to the first supported key material for each family, such as RSA and EC.
 - Allows repeated New Key operations; each generated key pair is added as a separate top-level tree item.
 - Lets the top-level key pair label be edited in the tree.
@@ -19,7 +19,7 @@ Current version: 0.0.6
 
 ### PKCS#12 Import
 
-- Imports PKCS#12 files (`.p12`, `.pfx`) through the Open Key menu.
+- Imports PKCS#12 files (`.p12`, `.pfx`) through the Open menu.
 - Supports password-protected PKCS#12 files.
 - Extracts private key material and matching certificates when present.
 - Adds matching certificates as child items under the imported key pair.
@@ -48,7 +48,7 @@ Current version: 0.0.6
 
 ### PKCS#12 Export
 
-- Saves selected top-level key pair items through the Save Key menu.
+- Saves selected top-level key pair items through the Save menu.
 - Shows a checkbox list of key pair items before saving.
 - Checks the currently selected key pair by default when a tree item is already selected.
 - Prompts for a PKCS#12 password before writing the file.
@@ -58,7 +58,7 @@ Current version: 0.0.6
 
 ### Tree View
 
-- Displays key material in a PkiStudioJS-like tree with a menu area and message area.
+- Displays key material in a PkiStudioJS-like tree with compact New, Open, and Save actions plus a message area.
 - Uses a PkiStudioJS-style tree card, connector lines, node icons, selection colors, and lower message area for the left pane.
 - Supports multiple top-level key pair items.
 - Supports child items for SubjectDN, PrivateKey, PublicKey, Certificate, and CSR objects.
@@ -71,10 +71,12 @@ Current version: 0.0.6
 - Allows child items to be deleted from their icon menu.
 - Allows top-level key pair items to be deleted from their icon menu; deleting a key pair removes all child items as well.
 - Lets the left and right panes be resized with the splitter between them.
+- Centers the empty tree message in the left pane content area.
 
 ### Application Shell
 
 - Fills the browser viewport and resizes the workspace, key tree, ASN.1 viewer, and API Log with the available browser area.
+- Lets the bottom API Log pane be resized with the horizontal splitter between it and the upper workspace.
 - Follows the browser or operating system light/dark theme preference and passes the effective theme to embedded PkiStudioJS viewer windows.
 - Supports `?theme=light` and `?theme=dark` for forcing the application shell and embedded viewer to a specific theme.
 - Shows an About menu in the top application bar with the current Private Key Gadgets version.
@@ -126,7 +128,7 @@ Current version: 0.0.6
 - Logs operations such as PkiStudioJS initialization, WebCrypto key generation and export, PKCS#12 import/export, certificate loading, clipboard access, file-system saves, CSR creation, and self-signed certificate signing.
 - Displays timestamps with millisecond precision.
 - Keeps the newest 200 log entries and drops older entries automatically.
-- Provides a Clear button for resetting the visible log.
+- Provides a right-aligned Clear button for resetting the visible log.
 
 The application provides Save Key for exporting selected key pairs as PKCS#12 files. Individual DER objects are shown in the PkiStudioJS viewer, and users can use the viewer's Save menu when they want to write the currently displayed DER document to a file.
 
