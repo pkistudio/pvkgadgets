@@ -5,9 +5,17 @@
   --chrome: #f2f2f2;
   --panel: #ffffff;
   --panel-border: #b8c0ca;
+  --tree-line: #b9b9b9;
   --text: #111827;
   --muted: #5b6470;
   --accent: #2563eb;
+  --selection: #cfe8ff;
+  --selection-border: #99c7ee;
+  --folder: #f3c14f;
+  --folder-edge: #c69324;
+  --leaf: #f7f7f7;
+  --leaf-edge: #8b8b8b;
+  --comment: #4b5563;
   --danger: #b91c1c;
 }
 
@@ -176,6 +184,8 @@ select {
   min-width: 0;
   min-height: 0;
   padding: 0;
+  background: var(--window);
+  overflow: hidden;
 }
 
 button {
@@ -206,7 +216,7 @@ button:disabled {
   gap: 2px;
   align-items: center;
   border-bottom: 1px solid var(--panel-border);
-  border-radius: 3px 3px 0 0;
+  border-radius: 0;
   padding: 4px;
   background: linear-gradient(#ffffff, var(--chrome));
 }
@@ -331,10 +341,15 @@ button:disabled {
 }
 
 .tree {
+  display: grid;
+  align-content: start;
+  gap: 0;
   flex: 1 1 auto;
   min-height: 480px;
   overflow: auto;
-  border: 0;
+  border: 1px solid var(--panel-border);
+  border-top: 0;
+  border-bottom: 0;
   padding: 4px 6px;
   background: #fff;
   font-family: Consolas, "Courier New", monospace;
@@ -351,15 +366,23 @@ button:disabled {
 
 .tree-node {
   position: relative;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .tree-node summary {
+  position: relative;
   display: flex;
-  align-items: center;
+  flex-wrap: nowrap;
+  align-items: flex-start;
   gap: 4px;
-  min-height: 22px;
+  min-height: 19px;
+  padding: 1px 4px 1px 0;
   list-style: none;
   cursor: default;
+  white-space: nowrap;
+  line-height: 16px;
 }
 
 .tree-node summary::-webkit-details-marker {
@@ -369,42 +392,50 @@ button:disabled {
 .tree-toggle {
   display: inline-grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
-  border: 1px solid #8f98a3;
+  position: relative;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  margin-right: 2px;
+  border: 1px solid #7f7f7f;
   background: #fff;
-  color: #111827;
+  color: #333;
+  font: 10px/1 Arial, sans-serif;
   line-height: 1;
+  user-select: none;
 }
 
 .tree-children {
   display: grid;
   gap: 0;
   margin-left: 19px;
-  padding-left: 8px;
-  border-left: 1px dotted #b9b9b9;
+  padding-left: 0;
+  border-left: 1px dotted var(--tree-line);
 }
 
 .tree-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   width: 100%;
-  min-height: 22px;
+  min-height: 19px;
   border: 1px solid transparent;
-  border-radius: 0;
-  padding: 1px 3px;
+  border-radius: 2px;
+  padding: 1px 3px 1px 0;
+  line-height: 16px;
 }
 
+.tree-node summary:hover,
 .tree-row:hover,
 .tree-row:focus-within {
-  border-color: var(--selection-border, #99c7ee);
-  background: var(--selection, #cfe8ff);
+  background: #eef6ff;
 }
 
 .tree-row.selected {
-  border-color: #99c7ee;
-  background: #cfe8ff;
+  border-color: var(--selection-border);
+  background: var(--selection);
 }
 
 .tree-item {
@@ -413,10 +444,11 @@ button:disabled {
   align-items: center;
   justify-content: flex-start;
   min-width: 0;
-  min-height: 18px;
+  min-height: 16px;
   border: 0;
   border-radius: 0;
   padding: 0;
+  color: var(--text);
   text-align: left;
   background: transparent;
   box-shadow: none;
@@ -433,8 +465,10 @@ button:disabled {
   flex: 0 0 auto;
   place-items: center;
   width: 15px;
-  height: 16px;
+  height: 12px;
   min-height: 0;
+  margin-top: 2px;
+  margin-right: 2px;
   border: 0;
   border-radius: 0;
   padding: 0;
@@ -445,53 +479,53 @@ button:disabled {
 
 .tree-icon-button:hover,
 .tree-icon-button:focus-visible {
-  outline: 1px solid var(--selection-border, #99c7ee);
-  background: #fff;
+  outline: none;
 }
 
 .tree-icon {
   position: relative;
   flex: 0 0 auto;
   width: 15px;
-  height: 14px;
+  height: 12px;
 }
 
 .tree-icon.folder::before {
   content: "";
   position: absolute;
   left: 1px;
-  top: 2px;
-  width: 8px;
+  top: 1px;
+  width: 7px;
   height: 4px;
-  border: 1px solid #c69324;
+  border: 1px solid var(--folder-edge);
   border-bottom: 0;
-  background: #ffe28f;
+  background: #ffe08a;
 }
 
 .tree-icon.folder::after {
   content: "";
   position: absolute;
   left: 0;
-  top: 5px;
+  top: 4px;
   width: 14px;
   height: 8px;
-  border: 1px solid #c69324;
-  background: linear-gradient(#ffe28f, #f3c14f);
+  border: 1px solid var(--folder-edge);
+  background: linear-gradient(#ffe28f, var(--folder));
 }
 
 .tree-icon.leaf::before {
   content: "";
   position: absolute;
   left: 2px;
-  top: 1px;
+  top: 0;
   width: 10px;
   height: 12px;
-  border: 1px solid #8b8b8b;
-  background: linear-gradient(135deg, transparent 0 18%, #dcdcdc 19% 26%, #f7f7f7 27%);
+  border: 1px solid var(--leaf-edge);
+  background: linear-gradient(135deg, transparent 0 18%, #dcdcdc 19% 26%, var(--leaf) 27%);
 }
 
 .tree-tag {
   color: var(--text);
+  font-weight: 400;
 }
 
 .key-label {
@@ -509,7 +543,8 @@ button:disabled {
   flex: 0 0 auto;
   min-height: 31px;
   margin: 0;
-  border-top: 1px solid var(--panel-border);
+  border: 1px solid var(--panel-border);
+  border-top: 0;
   padding: 7px 8px;
   color: var(--muted);
   font-size: 12px;
