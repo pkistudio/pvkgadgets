@@ -348,8 +348,7 @@ button:disabled {
   min-height: 480px;
   overflow: auto;
   border: 1px solid var(--panel-border);
-  border-top: 0;
-  border-bottom: 0;
+  border-radius: 3px;
   padding: 4px 6px;
   background: #fff;
   font-family: Consolas, "Courier New", monospace;
@@ -389,6 +388,21 @@ button:disabled {
   display: none;
 }
 
+.tree-node summary::after,
+.tree-row::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 8px;
+  width: 11px;
+  border-top: 1px dotted var(--tree-line);
+  transform: translateX(-100%);
+}
+
+.tree > .tree-node > summary::after {
+  display: none;
+}
+
 .tree-toggle {
   display: inline-grid;
   place-items: center;
@@ -408,6 +422,7 @@ button:disabled {
 }
 
 .tree-children {
+  position: relative;
   display: grid;
   gap: 0;
   margin-left: 19px;
@@ -415,7 +430,18 @@ button:disabled {
   border-left: 1px dotted var(--tree-line);
 }
 
+.tree-children::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: -1px;
+  width: 1px;
+  height: 8px;
+  background: #fff;
+}
+
 .tree-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
