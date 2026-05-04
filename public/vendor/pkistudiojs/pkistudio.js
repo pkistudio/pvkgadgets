@@ -2184,7 +2184,7 @@ details[open] > summary .node-line {
         return;
       }
     
-      const url = new URL(window.location.href);
+      const url = createNewWindowUrl();
       url.searchParams.set('expand', key);
       url.hash = '';
     
@@ -2213,7 +2213,7 @@ details[open] > summary .node-line {
         return;
       }
     
-      const url = new URL(window.location.href);
+      const url = createNewWindowUrl();
       url.searchParams.delete('expand');
       url.searchParams.set('subtree', key);
       url.hash = '';
@@ -2230,6 +2230,10 @@ details[open] > summary .node-line {
 
     function openViewerWindow(url) {
       return window.open(url.toString(), '_blank');
+    }
+
+    function createNewWindowUrl() {
+      return new URL(options.newWindowUrl || window.location.href, window.location.href);
     }
     
     async function writeClipboardText(text) {
