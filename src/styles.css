@@ -79,6 +79,21 @@ select {
   padding: 4px 8px;
 }
 
+.toolbar button {
+  min-height: 0;
+  border-color: transparent;
+  padding: 4px 12px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.toolbar button:hover,
+.toolbar button:focus-visible {
+  border-color: #9dbce5;
+  background: #eaf3ff;
+  outline: none;
+}
+
 .workspace {
   display: grid;
   flex: 1 1 auto;
@@ -651,6 +666,42 @@ button:disabled {
 
 .password-dialog::backdrop {
   background: rgba(15, 23, 42, 0.2);
+}
+
+.about-dialog {
+  width: min(360px, calc(100% - 32px));
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+}
+
+.about-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.2);
+}
+
+.about-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #8f98a3;
+  border-radius: 4px;
+  padding: 14px;
+  background: var(--panel);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.22);
+}
+
+.about-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.about-version,
+.about-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .password-panel {

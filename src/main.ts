@@ -132,6 +132,7 @@ const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
 ];
 
 const APP_BASE_URL = import.meta.env.BASE_URL;
+const APP_VERSION = '0.0.5';
 
 const EMBEDDED_VIEWER_STYLES = `
 :host {
@@ -226,6 +227,7 @@ app.innerHTML = `
   <main class="shell">
     <nav class="toolbar" aria-label="Application">
       <strong>Private Key Gadgets</strong>
+      <button id="aboutButton" type="button">About</button>
     </nav>
     <section class="workspace">
       <section class="panel key-panel" aria-label="Generated key material">
@@ -360,9 +362,20 @@ app.innerHTML = `
         </div>
       </form>
     </dialog>
+    <dialog id="aboutDialog" class="about-dialog">
+      <section class="about-panel" role="document">
+        <p class="about-name">Private Key Gadgets</p>
+        <p class="about-version">Version ${APP_VERSION}</p>
+        <p class="about-detail">PkiStudioJS ${window.PkiStudio?.version ?? 'viewer'} embedded ASN.1 viewer</p>
+        <div class="dialog-actions">
+          <button id="closeAboutButton" type="button">Close</button>
+        </div>
+      </section>
+    </dialog>
   </main>
 `;
 
+const aboutButton = query<HTMLButtonElement>('#aboutButton');
 const newKeyButton = query<HTMLButtonElement>('#newKeyButton');
 const workspace = query<HTMLElement>('.workspace');
 const paneResizer = query<HTMLElement>('#paneResizer');
@@ -412,6 +425,8 @@ const selfSignedCertValidityDaysInput = query<HTMLInputElement>('#selfSignedCert
 const selfSignedCertKeyUsageList = query<HTMLElement>('#selfSignedCertKeyUsageList');
 const subjectDnDialog = query<HTMLDialogElement>('#subjectDnDialog');
 const subjectDnInput = query<HTMLInputElement>('#subjectDnInput');
+const aboutDialog = query<HTMLDialogElement>('#aboutDialog');
+const closeAboutButton = query<HTMLButtonElement>('#closeAboutButton');
 
 let viewer: PkiStudioInstance | null = null;
 let keyMaterials: KeyMaterial[] = [];
@@ -444,6 +459,15 @@ setBusy(true);
 clearApiLogButton.addEventListener('click', () => {
   apiLogList.replaceChildren();
   logApi('clear', 'API log cleared.');
+});
+
+aboutButton.addEventListener('click', () => {
+  aboutDialog.showModal();
+  closeAboutButton.focus();
+});
+
+closeAboutButton.addEventListener('click', () => {
+  aboutDialog.close();
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
