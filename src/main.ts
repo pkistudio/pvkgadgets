@@ -265,8 +265,10 @@ app.innerHTML = `
           <button id="copyCsrPemMenuItem" type="button" role="menuitem" hidden>Copy as PEM</button>
           <button id="deleteChildItemMenuItem" type="button" role="menuitem">Delete</button>
         </div>
-        <div id="keyTree" class="tree empty">No key generated yet.</div>
-        <p id="formNotice" class="notice">Generated DER is sent to the ASN.1 viewer.</p>
+        <section class="key-card">
+          <div id="keyTree" class="tree empty">No key generated yet.</div>
+          <p id="formNotice" class="notice">Generated DER is sent to the ASN.1 viewer.</p>
+        </section>
       </section>
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize panes" aria-orientation="vertical" tabindex="0"></div>
       <section class="viewer-panel" aria-label="ASN.1 viewer">
