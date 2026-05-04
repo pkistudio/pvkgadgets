@@ -2,7 +2,7 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.0.7
+Current version: 0.0.8
 
 ## Features
 
@@ -70,6 +70,7 @@ Current version: 0.0.7
 - Provides Copy as PEM for CSR items from the child item icon menu.
 - Allows child items to be deleted from their icon menu.
 - Allows top-level key pair items to be deleted from their icon menu; deleting a key pair removes all child items as well.
+- Selecting a top-level key pair item resets the ASN.1 viewer to its initial empty display because the key pair itself does not contain DER data.
 - Lets the left and right panes be resized with the splitter between them.
 - Centers the empty tree message in the left pane content area.
 
