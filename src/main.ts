@@ -136,7 +136,9 @@ const APP_BASE_URL = import.meta.env.BASE_URL;
 const EMBEDDED_VIEWER_STYLES = `
 :host {
   min-height: 0 !important;
+  width: 100% !important;
   height: 100%;
+  overflow: hidden !important;
   background: transparent !important;
 }
 
@@ -160,9 +162,13 @@ main {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  gap: 6px;
   min-height: 0;
-  border-radius: 0 0 3px 3px !important;
+  border-right: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
+  overflow: hidden !important;
 }
 
 .picker {
@@ -182,7 +188,11 @@ main {
 :host(.pvkgadgets-viewer-readonly) [data-action="close"],
 :host(.pvkgadgets-viewer-readonly) [data-node-action="edit"],
 :host(.pvkgadgets-viewer-readonly) [data-node-action="insert-before"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="insert-before-new-item"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="insert-before-clipboard-hex"],
 :host(.pvkgadgets-viewer-readonly) [data-node-action="add-child"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="add-child-new-item"],
+:host(.pvkgadgets-viewer-readonly) [data-node-action="add-child-clipboard-hex"],
 :host(.pvkgadgets-viewer-readonly) [data-node-action="delete"],
 .pvkgadgets-viewer-readonly [data-action="toggle-load-menu"],
 .pvkgadgets-viewer-readonly [data-action="open"],
@@ -191,7 +201,11 @@ main {
 .pvkgadgets-viewer-readonly [data-action="close"],
 .pvkgadgets-viewer-readonly [data-node-action="edit"],
 .pvkgadgets-viewer-readonly [data-node-action="insert-before"],
+.pvkgadgets-viewer-readonly [data-node-action="insert-before-new-item"],
+.pvkgadgets-viewer-readonly [data-node-action="insert-before-clipboard-hex"],
 .pvkgadgets-viewer-readonly [data-node-action="add-child"],
+.pvkgadgets-viewer-readonly [data-node-action="add-child-new-item"],
+.pvkgadgets-viewer-readonly [data-node-action="add-child-clipboard-hex"],
 .pvkgadgets-viewer-readonly [data-node-action="delete"] {
   opacity: 0.45;
   pointer-events: none;
@@ -1363,7 +1377,7 @@ function listenForViewerChanges(instance: PkiStudioInstance): void {
   instance.root.addEventListener('submit', () => scheduleSelectedSubjectDnRefresh(instance), true);
   instance.root.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
-    if (!event.target.closest('[data-node-action="delete"], [data-about-action], [data-edit-action="cancel"], [data-time-action="cancel"], [data-octet-action="cancel"], [data-der-action="cancel"]')) {
+    if (!event.target.closest('[data-node-action="delete"], [data-about-action], [data-edit-action="cancel"], [data-time-action="cancel"], [data-octet-action="cancel"], [data-der-action="cancel"], [data-clipboard-insert-action="cancel"]')) {
       scheduleSelectedSubjectDnRefresh(instance);
     }
   }, true);
@@ -1602,7 +1616,16 @@ function isReadonlyViewerAction(button: HTMLButtonElement): boolean {
   if (action === 'toggle-load-menu' || action === 'open' || action === 'load-clipboard-pem' || action === 'load-clipboard-hex' || action === 'close') return true;
 
   const nodeAction = button.dataset.nodeAction;
-  return nodeAction === 'edit' || nodeAction === 'delete' || nodeAction === 'add-child' || nodeAction === 'insert-before';
+  return (
+    nodeAction === 'edit' ||
+    nodeAction === 'delete' ||
+    nodeAction === 'add-child' ||
+    nodeAction === 'add-child-new-item' ||
+    nodeAction === 'add-child-clipboard-hex' ||
+    nodeAction === 'insert-before' ||
+    nodeAction === 'insert-before-new-item' ||
+    nodeAction === 'insert-before-clipboard-hex'
+  );
 }
 
 function renderKeyTree(): void {
