@@ -1662,12 +1662,15 @@ function renderKeyTree(): void {
 function renderSubjectDnNode(keyMaterial: KeyMaterial, subjectDn: SubjectDnMaterial): string {
   const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === 'subjectdn' && selectedNode.subjectDnId === subjectDn.id;
   return `
-    <div class="tree-row${selected ? ' selected' : ''}">
-      <button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="subjectdn" data-subject-dn-id="${escapeHtml(subjectDn.id)}" aria-label="SubjectDN actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>
-      <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="subjectdn" data-subject-dn-id="${escapeHtml(subjectDn.id)}" aria-pressed="${selected}">
-        <span class="tree-tag">${escapeHtml(subjectDn.label)} (${subjectDn.bytes.byteLength})</span>
-      </button>
-    </div>
+    <details class="tree-node tree-leaf">
+      <summary class="tree-row${selected ? ' selected' : ''}">
+        <span class="tree-toggle" aria-hidden="true"></span>
+        <button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="subjectdn" data-subject-dn-id="${escapeHtml(subjectDn.id)}" aria-label="SubjectDN actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>
+        <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="subjectdn" data-subject-dn-id="${escapeHtml(subjectDn.id)}" aria-pressed="${selected}">
+          <span class="tree-tag">${escapeHtml(subjectDn.label)} (${subjectDn.bytes.byteLength})</span>
+        </button>
+      </summary>
+    </details>
   `;
 }
 
@@ -1681,24 +1684,30 @@ function renderMaterialNode(keyMaterial: KeyMaterial, kind: KeyNodeKind, label: 
         ? `<button class="tree-icon-button" type="button" data-certificate-menu data-key-id="${escapeHtml(keyMaterial.id)}" aria-label="Certificate actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`
         : `<button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="${kind}" aria-label="${label} actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>`;
   return `
-    <div class="tree-row${selected ? ' selected' : ''}">
-      ${menuButton}
-      <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="${kind}" aria-pressed="${selected}">
-      <span class="tree-tag">${label} (${bytes.byteLength})${escapeHtml(suffix)}</span>
-      </button>
-    </div>
+    <details class="tree-node tree-leaf">
+      <summary class="tree-row${selected ? ' selected' : ''}">
+        <span class="tree-toggle" aria-hidden="true"></span>
+        ${menuButton}
+        <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="${kind}" aria-pressed="${selected}">
+          <span class="tree-tag">${label} (${bytes.byteLength})${escapeHtml(suffix)}</span>
+        </button>
+      </summary>
+    </details>
   `;
 }
 
 function renderCsrNode(keyMaterial: KeyMaterial, csr: CsrMaterial): string {
   const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === 'csr' && selectedNode.csrId === csr.id;
   return `
-    <div class="tree-row${selected ? ' selected' : ''}">
-      <button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="csr" data-csr-id="${escapeHtml(csr.id)}" aria-label="CSR actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>
-      <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="csr" data-csr-id="${escapeHtml(csr.id)}" aria-pressed="${selected}">
-        <span class="tree-tag">${escapeHtml(csr.label)} (${csr.bytes.byteLength}) // ${escapeHtml(csr.hashAlgorithm)}</span>
-      </button>
-    </div>
+    <details class="tree-node tree-leaf">
+      <summary class="tree-row${selected ? ' selected' : ''}">
+        <span class="tree-toggle" aria-hidden="true"></span>
+        <button class="tree-icon-button" type="button" data-child-menu data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="csr" data-csr-id="${escapeHtml(csr.id)}" aria-label="CSR actions"><span class="tree-icon leaf" aria-hidden="true"></span></button>
+        <button class="tree-item" type="button" data-key-id="${escapeHtml(keyMaterial.id)}" data-key-node="csr" data-csr-id="${escapeHtml(csr.id)}" aria-pressed="${selected}">
+          <span class="tree-tag">${escapeHtml(csr.label)} (${csr.bytes.byteLength}) // ${escapeHtml(csr.hashAlgorithm)}</span>
+        </button>
+      </summary>
+    </details>
   `;
 }
 

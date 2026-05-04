@@ -389,9 +389,12 @@ button:disabled {
 }
 
 .tree-node summary::after,
-.tree-row::before {
+.tree-node .tree-node::before {
   content: "";
   position: absolute;
+}
+
+.tree-node summary::after {
   top: 9px;
   left: 8px;
   width: 11px;
@@ -399,8 +402,25 @@ button:disabled {
   transform: translateX(-100%);
 }
 
+.tree-node .tree-node {
+  margin-left: 19px;
+}
+
+.tree-node .tree-node::before {
+  top: -2px;
+  bottom: 8px;
+  left: -11px;
+  border-left: 1px dotted var(--tree-line);
+}
+
 .tree > .tree-node > summary::after {
   display: none;
+}
+
+.tree-leaf > summary .tree-toggle {
+  border-color: transparent;
+  background: transparent;
+  pointer-events: none;
 }
 
 .tree-toggle {
@@ -422,22 +442,9 @@ button:disabled {
 }
 
 .tree-children {
-  position: relative;
   display: grid;
   gap: 0;
-  margin-left: 19px;
   padding-left: 0;
-  border-left: 1px dotted var(--tree-line);
-}
-
-.tree-children::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: -1px;
-  width: 1px;
-  height: 8px;
-  background: #fff;
 }
 
 .tree-row {
