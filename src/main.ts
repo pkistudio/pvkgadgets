@@ -46,12 +46,6 @@ type SaveFileHandle = {
 };
 
 declare global {
-  interface ImportMeta {
-    readonly env: {
-      readonly BASE_URL: string;
-    };
-  }
-
   interface Window {
     PkiStudio?: PkiStudioApi;
     PkiStudioCore?: PkiStudioCoreApi;
@@ -81,7 +75,7 @@ type KeyMaterial = Omit<Pkcs12KeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
   subjectDns?: SubjectDnMaterial[];
 };
 
-type KeyNodeKind = 'private' | 'public' | 'certificate' | 'csr' | 'subjectdn';
+type KeyNodeKind = 'keypair' | 'private' | 'public' | 'certificate' | 'csr' | 'subjectdn';
 
 type AppTheme = 'light' | 'dark';
 
@@ -134,7 +128,7 @@ const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
 ];
 
 const APP_BASE_URL = import.meta.env.BASE_URL;
-const APP_VERSION = '0.0.7';
+const APP_VERSION = '0.0.8';
 
 const EMBEDDED_VIEWER_STYLES = `
 :host {
@@ -499,7 +493,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 newKeyButton.addEventListener('click', () => {
   if (newKeyButton.disabled) return;
-  setAlgorithmMenuOpen(algorithmMenu.hidden);
+  setAlgorithmMenuOpen(isElementHidden(algorithmMenu));
 });
 
 algorithmMenu.addEventListener('click', async (event) => {
@@ -652,14 +646,31 @@ deleteChildItemMenuItem.addEventListener('click', () => {
 });
 
 keyTree.addEventListener('click', (event) => {
-  if (event.target instanceof Element && event.target.closest('[data-key-label]')) return;
+  const keyLabel = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-key-label]') : null;
+  if (keyLabel) {
+    event.preventDefault();
+    event.stopPropagation();
+    const keyId = keyLabel.dataset.keyId ?? '';
+    if (keyId) {
+      selectedNode = { keyId, kind: 'keypair' };
+      showSelectedNode();
+      markKeyPairSelected(keyId);
+    }
+    keyLabel.focus();
+    return;
+  }
 
   const keyPairMenuButton = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-keypair-menu]') : null;
   if (keyPairMenuButton) {
     event.preventDefault();
     event.stopPropagation();
     const keyId = keyPairMenuButton.dataset.keyId ?? '';
-    setKeyPairMenuOpen(keyPairMenuKeyId !== keyId || keyPairMenu.hidden, keyId, keyPairMenuButton);
+    if (keyId) {
+      selectedNode = { keyId, kind: 'keypair' };
+      showSelectedNode();
+      markKeyPairSelected(keyId);
+    }
+    setKeyPairMenuOpen(keyPairMenuKeyId !== keyId || isElementHidden(keyPairMenu), keyId, keyPairMenuButton);
     return;
   }
 
@@ -668,7 +679,7 @@ keyTree.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     const keyId = certificateMenuButton.dataset.keyId ?? '';
-    setCertificateMenuOpen(certificateMenuKeyId !== keyId || certificateMenu.hidden, keyId, certificateMenuButton);
+    setCertificateMenuOpen(certificateMenuKeyId !== keyId || isElementHidden(certificateMenu), keyId, certificateMenuButton);
     return;
   }
 
@@ -677,7 +688,7 @@ keyTree.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     setChildItemMenuOpen(
-      !isChildItemMenuTarget(childMenuButton) || childItemMenu.hidden,
+      !isChildItemMenuTarget(childMenuButton) || isElementHidden(childItemMenu),
       {
         keyId: childMenuButton.dataset.keyId ?? '',
         kind: childMenuButton.dataset.keyNode as KeyNodeKind,
@@ -694,7 +705,7 @@ keyTree.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     const keyId = privateMenuButton.dataset.keyId ?? '';
-    setPrivateKeyMenuOpen(privateKeyMenuKeyId !== keyId || privateKeyMenu.hidden, keyId, privateMenuButton);
+    setPrivateKeyMenuOpen(privateKeyMenuKeyId !== keyId || isElementHidden(privateKeyMenu), keyId, privateMenuButton);
     return;
   }
 
@@ -1600,20 +1611,32 @@ function selectKeyNode(keyId: string, kind: KeyNodeKind, csrId?: string, subject
   showSelectedNode();
 }
 
+function markKeyPairSelected(keyId: string): void {
+  for (const summary of keyTree.querySelectorAll<HTMLElement>('.tree-node > summary.selected')) summary.classList.remove('selected');
+  for (const row of keyTree.querySelectorAll<HTMLElement>('.tree-row.selected')) row.classList.remove('selected');
+  for (const button of keyTree.querySelectorAll<HTMLButtonElement>('[data-key-node][aria-pressed="true"]')) button.setAttribute('aria-pressed', 'false');
+
+  const label = [...keyTree.querySelectorAll<HTMLElement>('[data-key-label]')].find((element) => element.dataset.keyId === keyId);
+  label?.closest<HTMLElement>('summary')?.classList.add('selected');
+}
+
 function showSelectedNode(): void {
   if (!selectedNode) {
+    viewer?.close?.();
     applyViewerEditState();
     return;
   }
 
   const keyMaterial = keyMaterials.find((material) => material.id === selectedNode?.keyId);
   if (!keyMaterial) {
+    viewer?.close?.();
     applyViewerEditState();
     return;
   }
 
   const bytes = getSelectedNodeBytes(keyMaterial, selectedNode);
   if (!bytes) {
+    viewer?.close?.();
     applyViewerEditState();
     return;
   }
@@ -1685,9 +1708,10 @@ function renderKeyTree(): void {
   keyTree.innerHTML = keyMaterials
     .map((keyMaterial) => {
       const info = recognizeKeyMaterial(keyMaterial);
+      const selected = selectedNode?.keyId === keyMaterial.id && selectedNode.kind === 'keypair';
       return `
     <details class="tree-node" open>
-      <summary>
+      <summary class="${selected ? 'selected' : ''}">
         <span class="tree-toggle" aria-hidden="true">−</span>
         <button class="tree-icon-button" type="button" data-keypair-menu data-key-id="${escapeHtml(keyMaterial.id)}" aria-label="KeyPair actions"><span class="tree-icon folder" aria-hidden="true"></span></button>
         <span class="tree-tag key-label" data-key-label data-key-id="${escapeHtml(keyMaterial.id)}" contenteditable="true" spellcheck="false">${escapeHtml(keyMaterial.label || info.label)}</span>
@@ -1768,6 +1792,8 @@ function renameKeyMaterial(keyId: string, label: string): void {
     return;
   }
 
+  if (keyMaterial.label === trimmedLabel) return;
+
   keyMaterial.label = trimmedLabel;
   renderKeyTree();
   setNotice(`Renamed key pair to ${trimmedLabel}.`);
@@ -1790,6 +1816,7 @@ function getSaveKeyNote(keyMaterial: KeyMaterial): string {
 }
 
 function getSelectedNodeBytes(keyMaterial: KeyMaterial, selected: SelectedKeyNode): Uint8Array | undefined {
+  if (selected.kind === 'keypair') return undefined;
   if (selected.kind === 'private') return keyMaterial.privateKeyDer;
   if (selected.kind === 'public') return keyMaterial.publicKeyDer;
   if (selected.kind === 'csr') return keyMaterial.csrs?.find((csr) => csr.id === selected.csrId)?.bytes;
@@ -2469,4 +2496,8 @@ function query<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
   return element;
+}
+
+function isElementHidden(element: HTMLElement): boolean {
+  return element.hidden === true;
 }
