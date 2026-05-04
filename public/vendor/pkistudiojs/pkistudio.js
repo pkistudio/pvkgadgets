@@ -1,26 +1,223 @@
 (() => {
   let defaultInstance = null;
-  const APP_VERSION = '0.2.4';
+  const APP_VERSION = '0.2.5';
 
   const APP_STYLES = `:host {
-  color-scheme: light;
+  color-scheme: light dark;
+  --bg-start: #f7f9fc;
   --bg: #eef1f5;
   --window: #f8f8f8;
+  --chrome-start: #ffffff;
   --chrome: #f2f2f2;
   --panel: #ffffff;
   --panel-border: #b8c0ca;
+  --control-border: #8f98a3;
+  --subtle-border: #c9cdd3;
   --tree-line: #b9b9b9;
   --text: #111827;
   --muted: #5b6470;
   --accent: #2563eb;
+  --accent-soft: #eef6ff;
+  --hover-border: #9dbce5;
+  --hover-bg: #eaf3ff;
   --selection: #cfe8ff;
   --selection-border: #99c7ee;
   --folder: #f3c14f;
   --folder-edge: #c69324;
+  --folder-highlight: #ffe08a;
+  --folder-start: #ffe28f;
   --leaf: #f7f7f7;
   --leaf-edge: #8b8b8b;
+  --leaf-fold: #dcdcdc;
+  --encapsulated-edge: #5f6f84;
+  --encapsulated-fold: #d5dbe3;
+  --encapsulated-strip: #d89b20;
+  --encapsulated-line: #6f5324;
+  --encapsulated-start: #f8fbff;
+  --encapsulated-end: #dfe8f4;
   --comment: #4b5563;
+  --constructed: #166534;
   --danger: #b91c1c;
+  --error-border: #e7a4a4;
+  --error-bg: #fff5f5;
+  --field-border: rgba(148, 163, 184, 0.14);
+  --field-bg: rgba(15, 23, 42, 0.46);
+  --dialog-overlay: rgba(15, 23, 42, 0.22);
+  --shadow-soft: rgba(15, 23, 42, 0.08);
+  --shadow-strong: rgba(15, 23, 42, 0.18);
+  --shadow-dialog: rgba(15, 23, 42, 0.22);
+  --button-bg-start: #ffffff;
+  --button-bg-end: #e7e9ee;
+  --disabled-text: #8a8f98;
+  --disabled-bg: #f1f2f4;
+  --readonly-bg: #f7f7f7;
+  --toggle-border: #7f7f7f;
+  --toggle-text: #333333;
+  --toggle-bg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    color-scheme: dark;
+    --bg-start: #202329;
+    --bg: #171a20;
+    --window: #202329;
+    --chrome-start: #2b2f36;
+    --chrome: #242830;
+    --panel: #1b1f26;
+    --panel-border: #4a5360;
+    --control-border: #66707d;
+    --subtle-border: #4c5561;
+    --tree-line: #6d7480;
+    --text: #e7eaf0;
+    --muted: #a8b0bc;
+    --accent: #7db3ff;
+    --accent-soft: #26384d;
+    --hover-border: #81a9dc;
+    --hover-bg: #28384b;
+    --selection: #21496f;
+    --selection-border: #5d91cc;
+    --folder: #d5a83f;
+    --folder-edge: #a77d25;
+    --folder-highlight: #f0c969;
+    --folder-start: #f3d27a;
+    --leaf: #dadde3;
+    --leaf-edge: #8d96a3;
+    --leaf-fold: #aeb5bf;
+    --encapsulated-edge: #8ba0bc;
+    --encapsulated-fold: #9aa7b8;
+    --encapsulated-strip: #d1a04a;
+    --encapsulated-line: #8f6b31;
+    --encapsulated-start: #e6edf6;
+    --encapsulated-end: #bcc9d9;
+    --comment: #b6bfca;
+    --constructed: #73d39a;
+    --danger: #ff9b9b;
+    --error-border: #965f63;
+    --error-bg: #341f24;
+    --field-border: rgba(148, 163, 184, 0.28);
+    --field-bg: rgba(255, 255, 255, 0.06);
+    --dialog-overlay: rgba(0, 0, 0, 0.48);
+    --shadow-soft: rgba(0, 0, 0, 0.22);
+    --shadow-strong: rgba(0, 0, 0, 0.42);
+    --shadow-dialog: rgba(0, 0, 0, 0.5);
+    --button-bg-start: #343943;
+    --button-bg-end: #252a32;
+    --disabled-text: #808793;
+    --disabled-bg: #282c34;
+    --readonly-bg: #2a2e36;
+    --toggle-border: #8d96a3;
+    --toggle-text: #e7eaf0;
+    --toggle-bg: #242830;
+  }
+}
+
+:host([data-pkistudio-theme="light"]) {
+  color-scheme: light;
+  --bg-start: #f7f9fc;
+  --bg: #eef1f5;
+  --window: #f8f8f8;
+  --chrome-start: #ffffff;
+  --chrome: #f2f2f2;
+  --panel: #ffffff;
+  --panel-border: #b8c0ca;
+  --control-border: #8f98a3;
+  --subtle-border: #c9cdd3;
+  --tree-line: #b9b9b9;
+  --text: #111827;
+  --muted: #5b6470;
+  --accent: #2563eb;
+  --accent-soft: #eef6ff;
+  --hover-border: #9dbce5;
+  --hover-bg: #eaf3ff;
+  --selection: #cfe8ff;
+  --selection-border: #99c7ee;
+  --folder: #f3c14f;
+  --folder-edge: #c69324;
+  --folder-highlight: #ffe08a;
+  --folder-start: #ffe28f;
+  --leaf: #f7f7f7;
+  --leaf-edge: #8b8b8b;
+  --leaf-fold: #dcdcdc;
+  --encapsulated-edge: #5f6f84;
+  --encapsulated-fold: #d5dbe3;
+  --encapsulated-strip: #d89b20;
+  --encapsulated-line: #6f5324;
+  --encapsulated-start: #f8fbff;
+  --encapsulated-end: #dfe8f4;
+  --comment: #4b5563;
+  --constructed: #166534;
+  --danger: #b91c1c;
+  --error-border: #e7a4a4;
+  --error-bg: #fff5f5;
+  --field-border: rgba(148, 163, 184, 0.14);
+  --field-bg: rgba(15, 23, 42, 0.46);
+  --dialog-overlay: rgba(15, 23, 42, 0.22);
+  --shadow-soft: rgba(15, 23, 42, 0.08);
+  --shadow-strong: rgba(15, 23, 42, 0.18);
+  --shadow-dialog: rgba(15, 23, 42, 0.22);
+  --button-bg-start: #ffffff;
+  --button-bg-end: #e7e9ee;
+  --disabled-text: #8a8f98;
+  --disabled-bg: #f1f2f4;
+  --readonly-bg: #f7f7f7;
+  --toggle-border: #7f7f7f;
+  --toggle-text: #333333;
+  --toggle-bg: #ffffff;
+}
+
+:host([data-pkistudio-theme="dark"]) {
+  color-scheme: dark;
+  --bg-start: #202329;
+  --bg: #171a20;
+  --window: #202329;
+  --chrome-start: #2b2f36;
+  --chrome: #242830;
+  --panel: #1b1f26;
+  --panel-border: #4a5360;
+  --control-border: #66707d;
+  --subtle-border: #4c5561;
+  --tree-line: #6d7480;
+  --text: #e7eaf0;
+  --muted: #a8b0bc;
+  --accent: #7db3ff;
+  --accent-soft: #26384d;
+  --hover-border: #81a9dc;
+  --hover-bg: #28384b;
+  --selection: #21496f;
+  --selection-border: #5d91cc;
+  --folder: #d5a83f;
+  --folder-edge: #a77d25;
+  --folder-highlight: #f0c969;
+  --folder-start: #f3d27a;
+  --leaf: #dadde3;
+  --leaf-edge: #8d96a3;
+  --leaf-fold: #aeb5bf;
+  --encapsulated-edge: #8ba0bc;
+  --encapsulated-fold: #9aa7b8;
+  --encapsulated-strip: #d1a04a;
+  --encapsulated-line: #8f6b31;
+  --encapsulated-start: #e6edf6;
+  --encapsulated-end: #bcc9d9;
+  --comment: #b6bfca;
+  --constructed: #73d39a;
+  --danger: #ff9b9b;
+  --error-border: #965f63;
+  --error-bg: #341f24;
+  --field-border: rgba(148, 163, 184, 0.28);
+  --field-bg: rgba(255, 255, 255, 0.06);
+  --dialog-overlay: rgba(0, 0, 0, 0.48);
+  --shadow-soft: rgba(0, 0, 0, 0.22);
+  --shadow-strong: rgba(0, 0, 0, 0.42);
+  --shadow-dialog: rgba(0, 0, 0, 0.5);
+  --button-bg-start: #343943;
+  --button-bg-end: #252a32;
+  --disabled-text: #808793;
+  --disabled-bg: #282c34;
+  --readonly-bg: #2a2e36;
+  --toggle-border: #8d96a3;
+  --toggle-text: #e7eaf0;
+  --toggle-bg: #242830;
 }
 
 * {
@@ -37,7 +234,7 @@
   font-family: Tahoma, "MS UI Gothic", "Yu Gothic UI", system-ui, sans-serif;
   font-size: 13px;
   color: var(--text);
-  background: linear-gradient(#f7f9fc, var(--bg));
+  background: linear-gradient(var(--bg-start), var(--bg));
 }
 
 :host([data-pkistudio-fullscreen]) {
@@ -70,8 +267,8 @@ main {
   border-bottom: 0;
   border-radius: 0;
   padding: 4px;
-  background: linear-gradient(#ffffff, var(--chrome));
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  background: linear-gradient(var(--chrome-start), var(--chrome));
+  box-shadow: 0 1px 2px var(--shadow-soft);
 }
 
 .menu button {
@@ -87,8 +284,8 @@ main {
 .menu button:hover,
 .menu button:focus-visible {
   outline: none;
-  border-color: #9dbce5;
-  background: #eaf3ff;
+  border-color: var(--hover-border);
+  background: var(--hover-bg);
 }
 
 .menu-group {
@@ -102,11 +299,11 @@ main {
   z-index: 20;
   display: grid;
   min-width: 230px;
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 3px;
-  background: #fff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  background: var(--panel);
+  box-shadow: 0 8px 20px var(--shadow-strong);
 }
 
 .submenu[hidden] {
@@ -132,7 +329,7 @@ main {
   border-radius: 999px;
   padding: 8px 12px;
   color: var(--muted);
-  background: rgba(15, 23, 42, 0.48);
+  background: var(--field-bg);
 }
 
 h1 {
@@ -182,10 +379,10 @@ input[type="file"] {
   max-width: 100%;
   max-height: none;
   overflow: auto;
-  border: 1px solid var(--panel-border);
-  border-radius: 3px;
+  border: 0;
+  border-radius: 0;
   padding: 4px 6px;
-  background: var(--panel);
+  background: transparent;
   font-family: Consolas, "Courier New", monospace;
   font-size: 12px;
   line-height: 1.35;
@@ -199,8 +396,7 @@ input[type="file"] {
 }
 
 .viewer.dragover {
-  border-color: var(--accent);
-  background: #eef6ff;
+  background: var(--accent-soft);
 }
 
 .tree {
@@ -261,9 +457,9 @@ summary::before {
   flex: 0 0 auto;
   margin-top: 2px;
   margin-right: 2px;
-  border: 1px solid #7f7f7f;
-  color: #333;
-  background: #fff;
+  border: 1px solid var(--toggle-border);
+  color: var(--toggle-text);
+  background: var(--toggle-bg);
   font: 10px/1 Arial, sans-serif;
   cursor: pointer;
   user-select: none;
@@ -325,7 +521,7 @@ summary::after {
   height: 4px;
   border: 1px solid var(--folder-edge);
   border-bottom: 0;
-  background: #ffe08a;
+  background: var(--folder-highlight);
 }
 
 .icon.folder::after {
@@ -336,7 +532,7 @@ summary::after {
   width: 14px;
   height: 8px;
   border: 1px solid var(--folder-edge);
-  background: linear-gradient(#ffe28f, var(--folder));
+  background: linear-gradient(var(--folder-start), var(--folder));
 }
 
 .icon.leaf::before {
@@ -347,7 +543,7 @@ summary::after {
   width: 10px;
   height: 12px;
   border: 1px solid var(--leaf-edge);
-  background: linear-gradient(135deg, transparent 0 18%, #dcdcdc 19% 26%, var(--leaf) 27%);
+  background: linear-gradient(135deg, transparent 0 18%, var(--leaf-fold) 19% 26%, var(--leaf) 27%);
 }
 
 .icon.encapsulated::before {
@@ -357,18 +553,18 @@ summary::after {
   top: 0;
   width: 10px;
   height: 12px;
-  border: 1px solid #5f6f84;
+  border: 1px solid var(--encapsulated-edge);
   background:
-    linear-gradient(135deg, transparent 0 18%, #d5dbe3 19% 26%, transparent 27%),
-    linear-gradient(90deg, transparent 0 2px, #d89b20 2px 5px, transparent 5px),
-    repeating-linear-gradient(180deg, transparent 0 2px, #6f5324 2px 3px, transparent 3px 4px),
-    linear-gradient(#f8fbff, #dfe8f4);
+    linear-gradient(135deg, transparent 0 18%, var(--encapsulated-fold) 19% 26%, transparent 27%),
+    linear-gradient(90deg, transparent 0 2px, var(--encapsulated-strip) 2px 5px, transparent 5px),
+    repeating-linear-gradient(180deg, transparent 0 2px, var(--encapsulated-line) 2px 3px, transparent 3px 4px),
+    linear-gradient(var(--encapsulated-start), var(--encapsulated-end));
   background-position: 0 0, 0 0, 3px 1px, 0 0;
   background-size: auto, auto, 2px 9px, auto;
 }
 
 summary:hover .node-line {
-  background: #eef6ff;
+  background: var(--accent-soft);
 }
 
 details[open] > summary .node-line {
@@ -388,7 +584,7 @@ details[open] > summary .node-line {
 }
 
 .tag {
-  color: #111827;
+  color: var(--text);
   font-weight: 400;
 }
 
@@ -402,11 +598,11 @@ details[open] > summary .node-line {
 }
 
 .constructed {
-  color: #166534;
+  color: var(--constructed);
 }
 
 .value {
-  color: #111827;
+  color: var(--text);
 }
 
 .hex,
@@ -420,10 +616,10 @@ details[open] > summary .node-line {
 
 .field {
   overflow-wrap: anywhere;
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  border: 1px solid var(--field-border);
   border-radius: 12px;
   padding: 10px;
-  background: rgba(15, 23, 42, 0.46);
+  background: var(--field-bg);
   font: 0.86rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -442,11 +638,11 @@ details[open] > summary .node-line {
 }
 
 .error {
-  border: 1px solid #e7a4a4;
+  border: 1px solid var(--error-border);
   border-radius: 3px;
   padding: 10px;
   color: var(--danger);
-  background: #fff5f5;
+  background: var(--error-bg);
 }
 
 .notice {
@@ -460,11 +656,11 @@ details[open] > summary .node-line {
   position: fixed;
   z-index: 20;
   min-width: 150px;
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 3px;
-  background: #fff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  background: var(--panel);
+  box-shadow: 0 8px 20px var(--shadow-strong);
 }
 
 .node-context-menu[hidden] {
@@ -506,11 +702,11 @@ details[open] > summary .node-line {
   z-index: 21;
   display: none;
   min-width: 150px;
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 3px;
-  background: #fff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  background: var(--panel);
+  box-shadow: 0 8px 20px var(--shadow-strong);
 }
 
 .node-context-menu.open-left .node-context-submenu {
@@ -527,8 +723,8 @@ details[open] > summary .node-line {
 .node-context-menu button:hover,
 .node-context-menu button:focus-visible {
   outline: none;
-  border-color: #9dbce5;
-  background: #eaf3ff;
+  border-color: var(--hover-border);
+  background: var(--hover-bg);
 }
 
 .edit-dialog {
@@ -537,7 +733,7 @@ details[open] > summary .node-line {
   z-index: 30;
   display: grid;
   place-items: center;
-  background: rgba(15, 23, 42, 0.22);
+  background: var(--dialog-overlay);
 }
 
 .edit-dialog[hidden] {
@@ -549,8 +745,8 @@ details[open] > summary .node-line {
   border: 1px solid var(--panel-border);
   border-radius: 6px;
   padding: 10px;
-  background: #fff;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+  background: var(--panel);
+  box-shadow: 0 18px 40px var(--shadow-dialog);
 }
 
 .der-panel {
@@ -578,7 +774,7 @@ details[open] > summary .node-line {
 
 .der-subgroup {
   margin: 0;
-  border: 1px solid #c9cdd3;
+  border: 1px solid var(--subtle-border);
   border-radius: 2px;
   padding: 8px 10px;
 }
@@ -621,16 +817,16 @@ details[open] > summary .node-line {
 
 .der-panel input[readonly],
 .der-panel textarea[readonly] {
-  background: #f7f7f7;
+  background: var(--readonly-bg);
 }
 
 .der-tag-name {
   margin-top: 6px;
-  border: 1px solid #c9cdd3;
+  border: 1px solid var(--subtle-border);
   border-radius: 2px;
   padding: 8px;
   text-align: center;
-  background: #f7f7f7;
+  background: var(--readonly-bg);
 }
 
 .der-content-summary {
@@ -653,9 +849,11 @@ details[open] > summary .node-line {
   width: 100%;
   min-height: 98px;
   resize: vertical;
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 6px 8px;
+  color: var(--text);
+  background: var(--panel);
   font: 12px/1.4 Consolas, "Courier New", monospace;
 }
 
@@ -691,9 +889,11 @@ details[open] > summary .node-line {
   width: 100%;
   min-height: 150px;
   resize: vertical;
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 6px 8px;
+  color: var(--text);
+  background: var(--panel);
   font: 12px/1.4 Consolas, "Courier New", monospace;
 }
 
@@ -717,11 +917,11 @@ details[open] > summary .node-line {
 }
 
 .octet-tools button {
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 5px 12px;
-  color: #111827;
-  background: linear-gradient(#ffffff, #e7e9ee);
+  color: var(--text);
+  background: linear-gradient(var(--button-bg-start), var(--button-bg-end));
   font: inherit;
   cursor: pointer;
 }
@@ -804,9 +1004,11 @@ details[open] > summary .node-line {
 
 .edit-panel input {
   width: 100%;
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 6px 8px;
+  color: var(--text);
+  background: var(--panel);
   font: 12px/1.4 Consolas, "Courier New", monospace;
 }
 
@@ -830,19 +1032,19 @@ details[open] > summary .node-line {
 }
 
 .edit-actions button {
-  border: 1px solid #8f98a3;
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   padding: 5px 14px;
-  color: #111827;
-  background: linear-gradient(#ffffff, #e7e9ee);
+  color: var(--text);
+  background: linear-gradient(var(--button-bg-start), var(--button-bg-end));
   font: inherit;
   cursor: pointer;
 }
 
 .edit-actions button:disabled {
-  color: #8a8f98;
+  color: var(--disabled-text);
   cursor: not-allowed;
-  background: #f1f2f4;
+  background: var(--disabled-bg);
 }
 
 @media (max-width: 640px) {
@@ -1103,6 +1305,7 @@ details[open] > summary .node-line {
 
   function createAppRoot(mount, options) {
     const useShadowRoot = options.shadowRoot !== false && typeof mount.attachShadow === 'function';
+    applyRequestedTheme(mount);
     if (options.fullscreen && !(mount instanceof ShadowRoot)) {
       applyFullscreenPageStyles();
       mount.setAttribute('data-pkistudio-fullscreen', '');
@@ -1115,6 +1318,22 @@ details[open] > summary .node-line {
 
     root.innerHTML = `<style>${APP_STYLES}</style>${APP_MARKUP}`;
     return root;
+  }
+
+  function applyRequestedTheme(mount) {
+    const theme = new URL(window.location.href).searchParams.get('theme');
+    if (theme !== 'dark' && theme !== 'light') return;
+
+    const host = mount instanceof ShadowRoot ? mount.host : mount;
+    host?.setAttribute('data-pkistudio-theme', theme);
+  }
+
+  function getEffectiveTheme() {
+    const host = document.querySelector('[data-pkistudio-mount], [data-pkistudio], #pkistudio');
+    const requestedTheme = host?.getAttribute('data-pkistudio-theme');
+    if (requestedTheme === 'dark' || requestedTheme === 'light') return requestedTheme;
+
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 
   function applyFullscreenPageStyles() {
@@ -2186,6 +2405,7 @@ details[open] > summary .node-line {
     
       const url = createNewWindowUrl();
       url.searchParams.set('expand', key);
+      url.searchParams.set('theme', getEffectiveTheme());
       url.hash = '';
     
       const expandedWindow = openViewerWindow(url);
@@ -2216,6 +2436,7 @@ details[open] > summary .node-line {
       const url = createNewWindowUrl();
       url.searchParams.delete('expand');
       url.searchParams.set('subtree', key);
+      url.searchParams.set('theme', getEffectiveTheme());
       url.hash = '';
     
       const subtreeWindow = openViewerWindow(url);
@@ -2811,6 +3032,7 @@ details[open] > summary .node-line {
         viewer.innerHTML = `<div class="error"><strong>Could not display the new-window data.</strong><br>${escapeHtml(error.message)}</div>`;
       } finally {
         url.searchParams.delete(transferType);
+        url.searchParams.delete('theme');
         window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
       }
     }

@@ -83,6 +83,8 @@ type KeyMaterial = Omit<Pkcs12KeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
 
 type KeyNodeKind = 'private' | 'public' | 'certificate' | 'csr' | 'subjectdn';
 
+type AppTheme = 'light' | 'dark';
+
 type SelectedKeyNode = {
   keyId: string;
   kind: KeyNodeKind;
@@ -132,7 +134,7 @@ const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
 ];
 
 const APP_BASE_URL = import.meta.env.BASE_URL;
-const APP_VERSION = '0.0.5';
+const APP_VERSION = '0.0.6';
 
 const EMBEDDED_VIEWER_STYLES = `
 :host {
@@ -274,7 +276,7 @@ app.innerHTML = `
       </section>
       <div id="paneResizer" class="pane-resizer" role="separator" aria-label="Resize panes" aria-orientation="vertical" tabindex="0"></div>
       <section class="viewer-panel" aria-label="ASN.1 viewer">
-        <div id="viewerMount"></div>
+        <div id="viewerMount" data-pkistudio-mount></div>
       </section>
     </section>
     <section class="api-log-panel panel" aria-label="API log">
@@ -403,6 +405,7 @@ const copyCsrPemMenuItem = query<HTMLButtonElement>('#copyCsrPemMenuItem');
 const deleteChildItemMenuItem = query<HTMLButtonElement>('#deleteChildItemMenuItem');
 const keyTree = query<HTMLElement>('#keyTree');
 const formNotice = query<HTMLElement>('#formNotice');
+const viewerMount = query<HTMLElement>('#viewerMount');
 const apiLogList = query<HTMLElement>('#apiLogList');
 const clearApiLogButton = query<HTMLButtonElement>('#clearApiLogButton');
 const pkcs12PasswordDialog = query<HTMLDialogElement>('#pkcs12PasswordDialog');
@@ -452,6 +455,7 @@ const CERTIFICATE_KEY_USAGES: CertificateKeyUsage[] = [
   { id: 'decipherOnly', label: 'decipherOnly', bit: 8 }
 ];
 
+applyRequestedTheme();
 setupPaneResizer();
 logApi('ready', 'Waiting for API activity.');
 setBusy(true);
@@ -1571,6 +1575,19 @@ function applyEmbeddedViewerStyles(instance: PkiStudioInstance): void {
   const style = document.createElement('style');
   style.textContent = EMBEDDED_VIEWER_STYLES;
   instance.root.prepend(style);
+}
+
+function applyRequestedTheme(): void {
+  const theme = getRequestedTheme();
+  if (!theme) return;
+
+  document.documentElement.dataset.pvkgadgetsTheme = theme;
+  viewerMount.setAttribute('data-pkistudio-theme', theme);
+}
+
+function getRequestedTheme(): AppTheme | null {
+  const theme = new URL(window.location.href).searchParams.get('theme');
+  return theme === 'dark' || theme === 'light' ? theme : null;
 }
 
 function selectKeyNode(keyId: string, kind: KeyNodeKind, csrId?: string, subjectDnId?: string): void {

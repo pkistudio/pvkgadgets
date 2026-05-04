@@ -2,7 +2,7 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.0.5
+Current version: 0.0.6
 
 ## Features
 
@@ -75,6 +75,8 @@ Current version: 0.0.5
 ### Application Shell
 
 - Fills the browser viewport and resizes the workspace, key tree, ASN.1 viewer, and API Log with the available browser area.
+- Follows the browser or operating system light/dark theme preference and passes the effective theme to embedded PkiStudioJS viewer windows.
+- Supports `?theme=light` and `?theme=dark` for forcing the application shell and embedded viewer to a specific theme.
 - Shows an About menu in the top application bar with the current Private Key Gadgets version.
 
 ### SubjectDN Objects
@@ -157,7 +159,7 @@ Private Key Gadgets is licensed under the MIT License. See [LICENSE](LICENSE).
 
 ## Vendor Assets
 
-The prototype vendors the PkiStudioJS 0.2.4 browser assets under `public/vendor/pkistudiojs/`:
+The prototype vendors the PkiStudioJS 0.2.5 browser assets under `public/vendor/pkistudiojs/`:
 
 - `pkistudio-core.js`
 - `pkistudio.js`
