@@ -230,6 +230,11 @@ select {
   cursor: col-resize;
 }
 
+.shell.resizing-rows {
+  user-select: none;
+  cursor: row-resize;
+}
+
 .pane-resizer {
   position: relative;
   align-self: stretch;
@@ -248,6 +253,24 @@ select {
   outline: none;
 }
 
+.api-log-resizer {
+  position: relative;
+  flex: 0 0 6px;
+  min-height: 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: linear-gradient(0deg, transparent 0 2px, var(--splitter) 2px 3px, transparent 3px 6px);
+  cursor: row-resize;
+}
+
+.api-log-resizer:hover,
+.api-log-resizer:focus-visible,
+.shell.resizing-rows .api-log-resizer {
+  border-color: var(--hover-border);
+  background-color: var(--hover-bg);
+  outline: none;
+}
+
 .panel {
   border: 1px solid var(--panel-border);
   border-radius: 3px;
@@ -258,22 +281,19 @@ select {
 .api-log-panel {
   flex: 0 0 auto;
   margin-top: 0;
+  border: 0;
   padding: 0;
+  background: var(--window);
 }
 
 .api-log-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-bottom: 1px solid var(--panel-border);
-  border-radius: 3px 3px 0 0;
-  padding: 4px 6px 4px 8px;
-  background: linear-gradient(var(--chrome-start), var(--chrome));
-}
-
-.api-log-header strong {
-  font-weight: 700;
+  justify-content: flex-end;
+  border-bottom: 0;
+  border-radius: 0;
+  padding: 0 0 4px;
+  background: transparent;
 }
 
 .api-log-header button {
@@ -294,11 +314,11 @@ select {
 .api-log-list {
   display: grid;
   align-content: start;
-  height: clamp(86px, 15dvh, 160px);
+  height: var(--api-log-list-height, clamp(86px, 15dvh, 160px));
   min-height: 0;
   overflow: auto;
   padding: 5px 6px;
-  background: var(--panel);
+  background: transparent;
   font-family: Consolas, "Courier New", monospace;
   font-size: 12px;
   line-height: 1.35;
@@ -385,7 +405,9 @@ button:disabled {
   align-items: stretch;
   gap: 6px;
   min-height: 0;
-  border: 1px solid var(--panel-border);
+  border: 0;
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
   border-radius: 0;
   padding: 6px;
   background: var(--window);
@@ -519,10 +541,10 @@ button:disabled {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  border: 1px solid var(--panel-border);
+  border: 0;
   border-radius: 3px;
   padding: 4px 6px;
-  background: var(--panel);
+  background: transparent;
   font-family: Consolas, "Courier New", monospace;
   font-size: 12px;
   line-height: 1.35;
@@ -530,6 +552,8 @@ button:disabled {
 
 .tree.empty {
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
   place-items: center;
   color: var(--muted);
   font-family: Tahoma, "MS UI Gothic", "Yu Gothic UI", system-ui, sans-serif;
@@ -951,6 +975,10 @@ button:disabled {
   }
 
   .pane-resizer {
+    display: none;
+  }
+
+  .api-log-resizer {
     display: none;
   }
 

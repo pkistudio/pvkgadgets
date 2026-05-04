@@ -134,7 +134,7 @@ const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
 ];
 
 const APP_BASE_URL = import.meta.env.BASE_URL;
-const APP_VERSION = '0.0.6';
+const APP_VERSION = '0.0.7';
 
 const EMBEDDED_VIEWER_STYLES = `
 :host {
@@ -235,11 +235,11 @@ app.innerHTML = `
       <section class="panel key-panel" aria-label="Generated key material">
         <nav class="key-menu" aria-label="Key actions">
           <div class="menu-group">
-            <button id="newKeyButton" type="button" aria-haspopup="menu" aria-expanded="false">New Key</button>
+            <button id="newKeyButton" type="button" aria-haspopup="menu" aria-expanded="false">New</button>
             <div id="algorithmMenu" class="submenu" role="menu" hidden></div>
           </div>
-          <button id="openKeyButton" type="button">Open Key</button>
-          <button id="saveKeyButton" type="button">Save Key</button>
+          <button id="openKeyButton" type="button">Open</button>
+          <button id="saveKeyButton" type="button">Save</button>
           <input id="openKeyInput" class="visually-hidden" type="file" accept=".p12,.pfx,application/pkcs12,application/x-pkcs12" />
           <input id="certificateInput" class="visually-hidden" type="file" accept=".cer,.crt,.der,.pem,application/pkix-cert,application/x-x509-ca-cert" />
         </nav>
@@ -279,9 +279,9 @@ app.innerHTML = `
         <div id="viewerMount" data-pkistudio-mount></div>
       </section>
     </section>
+    <div id="apiLogResizer" class="api-log-resizer" role="separator" aria-label="Resize API log" aria-orientation="horizontal" tabindex="0"></div>
     <section class="api-log-panel panel" aria-label="API log">
       <header class="api-log-header">
-        <strong>API Log</strong>
         <button id="clearApiLogButton" type="button">Clear</button>
       </header>
       <div id="apiLogList" class="api-log-list" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -381,6 +381,7 @@ const aboutButton = query<HTMLButtonElement>('#aboutButton');
 const newKeyButton = query<HTMLButtonElement>('#newKeyButton');
 const workspace = query<HTMLElement>('.workspace');
 const paneResizer = query<HTMLElement>('#paneResizer');
+const apiLogResizer = query<HTMLElement>('#apiLogResizer');
 const openKeyButton = query<HTMLButtonElement>('#openKeyButton');
 const saveKeyButton = query<HTMLButtonElement>('#saveKeyButton');
 const openKeyInput = query<HTMLInputElement>('#openKeyInput');
@@ -407,6 +408,7 @@ const keyTree = query<HTMLElement>('#keyTree');
 const formNotice = query<HTMLElement>('#formNotice');
 const viewerMount = query<HTMLElement>('#viewerMount');
 const apiLogList = query<HTMLElement>('#apiLogList');
+const apiLogPanel = query<HTMLElement>('.api-log-panel');
 const clearApiLogButton = query<HTMLButtonElement>('#clearApiLogButton');
 const pkcs12PasswordDialog = query<HTMLDialogElement>('#pkcs12PasswordDialog');
 const pkcs12PasswordTitle = query<HTMLElement>('#pkcs12PasswordTitle');
@@ -457,6 +459,7 @@ const CERTIFICATE_KEY_USAGES: CertificateKeyUsage[] = [
 
 applyRequestedTheme();
 setupPaneResizer();
+setupApiLogResizer();
 logApi('ready', 'Waiting for API activity.');
 setBusy(true);
 
@@ -1899,9 +1902,55 @@ function setupPaneResizer(): void {
   });
 }
 
+function setupApiLogResizer(): void {
+  const savedHeightText = localStorage.getItem('pvkgadgets.apiLogListHeight');
+  const savedHeight = savedHeightText === null ? NaN : Number(savedHeightText);
+  const initialHeight = Number.isFinite(savedHeight) ? savedHeight : apiLogList.getBoundingClientRect().height || 120;
+  setApiLogListHeight(initialHeight, false);
+
+  apiLogResizer.addEventListener('pointerdown', (event) => {
+    if (isSingleColumnLayout()) return;
+
+    event.preventDefault();
+    apiLogResizer.setPointerCapture(event.pointerId);
+    document.querySelector<HTMLElement>('.shell')?.classList.add('resizing-rows');
+    updateApiLogHeightFromPointer(event.clientY);
+  });
+
+  apiLogResizer.addEventListener('pointermove', (event) => {
+    if (!apiLogResizer.hasPointerCapture(event.pointerId)) return;
+    updateApiLogHeightFromPointer(event.clientY);
+  });
+
+  apiLogResizer.addEventListener('pointerup', finishApiLogResize);
+  apiLogResizer.addEventListener('pointercancel', finishApiLogResize);
+
+  apiLogResizer.addEventListener('keydown', (event) => {
+    if (isSingleColumnLayout()) return;
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown' && event.key !== 'Home' && event.key !== 'End') return;
+
+    event.preventDefault();
+    const currentHeight = Number(getComputedStyle(apiLogList).getPropertyValue('--api-log-list-height').replace('px', '')) || apiLogList.getBoundingClientRect().height || 120;
+    if (event.key === 'Home') setApiLogListHeight(getApiLogHeightBounds().min);
+    else if (event.key === 'End') setApiLogListHeight(getApiLogHeightBounds().max);
+    else setApiLogListHeight(currentHeight + (event.key === 'ArrowUp' ? 24 : -24));
+  });
+
+  window.addEventListener('resize', () => {
+    if (isSingleColumnLayout()) return;
+    const currentHeight = Number(getComputedStyle(apiLogList).getPropertyValue('--api-log-list-height').replace('px', '')) || apiLogList.getBoundingClientRect().height || 120;
+    setApiLogListHeight(currentHeight, false);
+  });
+}
+
 function finishPaneResize(event: PointerEvent): void {
   if (paneResizer.hasPointerCapture(event.pointerId)) paneResizer.releasePointerCapture(event.pointerId);
   workspace.classList.remove('resizing');
+}
+
+function finishApiLogResize(event: PointerEvent): void {
+  if (apiLogResizer.hasPointerCapture(event.pointerId)) apiLogResizer.releasePointerCapture(event.pointerId);
+  document.querySelector<HTMLElement>('.shell')?.classList.remove('resizing-rows');
 }
 
 function updateKeyPanelWidthFromPointer(clientX: number): void {
@@ -1919,6 +1968,21 @@ function setKeyPanelWidth(width: number, persist = true): void {
   if (persist) localStorage.setItem('pvkgadgets.keyPanelWidth', String(clampedWidth));
 }
 
+function updateApiLogHeightFromPointer(clientY: number): void {
+  const bounds = getApiLogHeightBounds();
+  setApiLogListHeight(bounds.bottom - clientY - bounds.resizerHeight - bounds.headerHeight - bounds.panelVerticalExtras);
+}
+
+function setApiLogListHeight(height: number, persist = true): void {
+  const bounds = getApiLogHeightBounds();
+  const clampedHeight = Math.round(Math.min(Math.max(height, bounds.min), bounds.max));
+  apiLogList.style.setProperty('--api-log-list-height', `${clampedHeight}px`);
+  apiLogResizer.setAttribute('aria-valuemin', String(bounds.min));
+  apiLogResizer.setAttribute('aria-valuemax', String(bounds.max));
+  apiLogResizer.setAttribute('aria-valuenow', String(clampedHeight));
+  if (persist) localStorage.setItem('pvkgadgets.apiLogListHeight', String(clampedHeight));
+}
+
 function getPaneWidthBounds(): { left: number; min: number; max: number } {
   const style = getComputedStyle(workspace);
   const rect = workspace.getBoundingClientRect();
@@ -1934,6 +1998,30 @@ function getPaneWidthBounds(): { left: number; min: number; max: number } {
     left: rect.left + borderLeft + paddingLeft,
     min,
     max: Math.max(min, contentWidth - splitterWidth - (columnGap * 2) - minViewerWidth)
+  };
+}
+
+function getApiLogHeightBounds(): { bottom: number; min: number; max: number; resizerHeight: number; headerHeight: number; panelVerticalExtras: number } {
+  const shell = query<HTMLElement>('.shell');
+  const shellRect = shell.getBoundingClientRect();
+  const workspaceRect = workspace.getBoundingClientRect();
+  const panelStyle = getComputedStyle(apiLogPanel);
+  const headerHeight = query<HTMLElement>('.api-log-header').getBoundingClientRect().height;
+  const resizerHeight = apiLogResizer.getBoundingClientRect().height || 6;
+  const panelVerticalExtras = (Number.parseFloat(panelStyle.borderTopWidth) || 0)
+    + (Number.parseFloat(panelStyle.borderBottomWidth) || 0)
+    + (Number.parseFloat(panelStyle.paddingTop) || 0)
+    + (Number.parseFloat(panelStyle.paddingBottom) || 0);
+  const min = 60;
+  const minWorkspaceHeight = 260;
+  const availableHeight = shellRect.height - (workspaceRect.top - shellRect.top) - resizerHeight - headerHeight - panelVerticalExtras;
+  return {
+    bottom: shellRect.bottom,
+    min,
+    max: Math.max(min, availableHeight - minWorkspaceHeight),
+    resizerHeight,
+    headerHeight,
+    panelVerticalExtras
   };
 }
 
