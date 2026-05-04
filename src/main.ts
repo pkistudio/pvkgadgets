@@ -1,7 +1,15 @@
 import './styles.css';
-import * as asn1js from 'asn1js';
-import { AttributeTypeAndValue, BasicConstraints, Certificate, CertificationRequest, Extension, RelativeDistinguishedNames, Time } from 'pkijs';
-import { readPkcs12Keys, writePkcs12Keys, type Pkcs12KeyMaterial } from './pkcs12';
+import { Certificate } from 'pkijs';
+import {
+  CERTIFICATE_KEY_USAGES,
+  PkiGadgetsCore,
+  type CsrMaterial,
+  type KeyAlgorithmCandidate,
+  type PkiGadgetsCoreApi,
+  type PkiGadgetsKeyMaterial,
+  type RecognizedKeyInfo,
+  type SubjectDnMaterial
+} from './core';
 
 type PkiStudioInstance = {
   close?: () => void;
@@ -49,26 +57,12 @@ declare global {
   interface Window {
     PkiStudio?: PkiStudioApi;
     PkiStudioCore?: PkiStudioCoreApi;
+    PkiGadgetsCore?: PkiGadgetsCoreApi;
     showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<SaveFileHandle>;
   }
 }
 
-type CsrMaterial = {
-  id: string;
-  label: string;
-  subjectDn: string;
-  hashAlgorithm: string;
-  bytes: Uint8Array;
-};
-
-type SubjectDnMaterial = {
-  id: string;
-  label: string;
-  subjectDn: string;
-  bytes: Uint8Array;
-};
-
-type KeyMaterial = Omit<Pkcs12KeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
+type KeyMaterial = Omit<PkiGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
   privateKeyDer?: Uint8Array;
   publicKeyDer?: Uint8Array;
   csrs?: CsrMaterial[];
@@ -86,49 +80,14 @@ type SelectedKeyNode = {
   subjectDnId?: string;
 };
 
-type RecognizedKeyInfo = {
-  family: 'RSA' | 'EC' | 'Ed25519' | 'Ed448' | 'X25519' | 'X448' | 'Unknown';
-  label: string;
-  canSign: boolean;
-  canDerive: boolean;
-  namedCurve?: string;
-};
-
-type DerNode = PkiStudioCoreNode;
-
-type KeyAlgorithmCandidate = {
-  id: string;
-  canonicalId: string;
-  canonicalLabel: string;
-  algorithm: AlgorithmIdentifier | RsaHashedKeyGenParams | EcKeyGenParams;
-  usages: KeyUsage[];
-};
-
 type SupportedKeyAlgorithm = KeyAlgorithmCandidate;
 
 type ViewerRoot = DocumentFragment | Element;
 
-type CertificateKeyUsage = {
-  id: string;
-  label: string;
-  bit: number;
-  defaultChecked?: boolean;
-};
-
-const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
-  ...createRsaCandidates('RSASSA-PKCS1-v1_5', 'SHA-256', ['sign', 'verify']),
-  ...createRsaCandidates('RSA-PSS', 'SHA-256', ['sign', 'verify']),
-  ...createRsaCandidates('RSA-OAEP', 'SHA-256', ['encrypt', 'decrypt']),
-  ...createNamedCurveCandidates('ECDSA', ['P-256', 'P-384', 'P-521'], ['sign', 'verify']),
-  ...createNamedCurveCandidates('ECDH', ['P-256', 'P-384', 'P-521'], ['deriveBits']),
-  ...createNamedCurveCandidates('Ed25519', ['Ed25519'], ['sign', 'verify']),
-  ...createNamedCurveCandidates('Ed448', ['Ed448'], ['sign', 'verify']),
-  ...createNamedCurveCandidates('X25519', ['X25519'], ['deriveBits']),
-  ...createNamedCurveCandidates('X448', ['X448'], ['deriveBits'])
-];
-
 const APP_BASE_URL = import.meta.env.BASE_URL;
-const APP_VERSION = '0.0.8';
+const APP_VERSION = PkiGadgetsCore.version;
+
+window.PkiGadgetsCore = PkiGadgetsCore;
 
 const EMBEDDED_VIEWER_STYLES = `
 :host {
@@ -439,17 +398,6 @@ let pendingCertificateKeyId: string | null = null;
 
 const CSR_HASH_ALGORITHMS = ['SHA-256', 'SHA-384', 'SHA-512'];
 const MAX_API_LOG_ENTRIES = 200;
-const CERTIFICATE_KEY_USAGES: CertificateKeyUsage[] = [
-  { id: 'digitalSignature', label: 'digitalSignature', bit: 0 },
-  { id: 'nonRepudiation', label: 'nonRepudiation', bit: 1 },
-  { id: 'keyEncipherment', label: 'keyEncipherment', bit: 2 },
-  { id: 'dataEncipherment', label: 'dataEncipherment', bit: 3 },
-  { id: 'keyAgreement', label: 'keyAgreement', bit: 4 },
-  { id: 'keyCertSign', label: 'certSign', bit: 5, defaultChecked: true },
-  { id: 'cRLSign', label: 'crlSign', bit: 6, defaultChecked: true },
-  { id: 'encipherOnly', label: 'encipherOnly', bit: 7 },
-  { id: 'decipherOnly', label: 'decipherOnly', bit: 8 }
-];
 
 applyRequestedTheme();
 setupPaneResizer();
@@ -769,27 +717,9 @@ async function generateKeyPair(selection: string): Promise<void> {
   setNotice('Generating key pair...');
 
   try {
-    const { algorithm, usages } = getGenerationOptions(selection);
     logApi('WebCrypto.generateKey', `${selection} requested.`);
-    const generated = await crypto.subtle.generateKey(algorithm, true, usages);
-
-    if (!isCryptoKeyPair(generated)) throw new Error('The browser did not return a key pair.');
-
     logApi('WebCrypto.exportKey', 'Exporting generated key pair as PKCS#8/SPKI DER.');
-    const [privateKeyBuffer, publicKeyBuffer] = await Promise.all([
-      crypto.subtle.exportKey('pkcs8', generated.privateKey),
-      crypto.subtle.exportKey('spki', generated.publicKey)
-    ]);
-
-    const privateKeyDer = new Uint8Array(privateKeyBuffer);
-    const publicKeyDer = new Uint8Array(publicKeyBuffer);
-
-    const keyMaterial: KeyMaterial = {
-      id: createKeyId(),
-      label: getDefaultKeyLabel({ privateKeyDer, publicKeyDer }),
-      privateKeyDer,
-      publicKeyDer
-    };
+    const keyMaterial = await PkiGadgetsCore.generateKeyPair(selection, { createId: createKeyId });
 
     addKeyMaterial(keyMaterial);
     setNotice(`Generated ${recognizeKeyMaterial(keyMaterial).label}.`);
@@ -809,7 +739,7 @@ async function openPkcs12File(file: File, password: string): Promise<void> {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     logApi('PKCS#12.open', `Reading ${file.name} (${bytes.byteLength} bytes).`);
-    const openedKeys = (await readPkcs12Keys(bytes, password, { sourceName: file.name, createId: createKeyId })).map((key) => ({
+    const openedKeys = (await PkiGadgetsCore.readPkcs12(bytes, password, { sourceName: file.name, createId: createKeyId })).map((key) => ({
       ...key,
       label: key.label || getDefaultKeyLabel(key)
     }));
@@ -851,7 +781,7 @@ async function addCertificateBytes(keyId: string, certificateDer: Uint8Array, so
   setNotice(`Adding Certificate from ${sourceName}...`);
 
   try {
-    const certificate = Certificate.fromBER(toArrayBuffer(certificateDer));
+    const certificate = Certificate.fromBER(PkiGadgetsCore.toArrayBuffer(certificateDer));
     const certificatePublicKeyDer = new Uint8Array(certificate.subjectPublicKeyInfo.toSchema().toBER(false));
     const match = await certificateMatchesKeyMaterial(keyMaterial, certificatePublicKeyDer);
 
@@ -879,7 +809,7 @@ async function savePkcs12File(keyIds: string[], password: string): Promise<void>
   try {
     const selectedKeys = keyIds.map((keyId) => keyMaterials.find((material) => material.id === keyId)).filter((material): material is KeyMaterial => Boolean(material));
     logApi('PKCS#12.save', `Creating PKCS#12 for ${selectedKeys.length} key pair${selectedKeys.length === 1 ? '' : 's'}.`);
-    const bytes = await writePkcs12Keys(selectedKeys, password);
+    const bytes = await PkiGadgetsCore.writePkcs12(selectedKeys, password);
     const fileName = getPkcs12FileName(selectedKeys);
     await saveBytesToFile(bytes, fileName);
     setNotice(`Saved ${selectedKeys.length} key pair${selectedKeys.length === 1 ? '' : 's'} to ${fileName}.`);
@@ -901,54 +831,20 @@ async function readCertificateFile(file: File): Promise<Uint8Array> {
 function readCertificatePemText(text: string): Uint8Array {
   const pemMatch = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/i.exec(text);
   if (!pemMatch) throw new Error('Certificate PEM was not found.');
-  return getPkiStudioCore().decodePem(pemMatch[0]);
+  return PkiGadgetsCore.pemToDer(pemMatch[0], 'CERTIFICATE');
 }
 
 async function certificateMatchesKeyMaterial(keyMaterial: KeyMaterial, certificatePublicKeyDer: Uint8Array): Promise<boolean> {
-  if (keyMaterial.publicKeyDer) return bytesEqual(keyMaterial.publicKeyDer, certificatePublicKeyDer);
+  if (keyMaterial.publicKeyDer) return PkiGadgetsCore.bytesEqual(keyMaterial.publicKeyDer, certificatePublicKeyDer);
   if (!keyMaterial.privateKeyDer) throw new Error('PrivateKey item is required before adding a certificate.');
 
   const info = recognizeKeyMaterial(keyMaterial);
   if (!info.canSign) throw new Error(`${info.label} cannot be checked against a certificate.`);
 
-  return verifyPrivateKeyMatchesPublicKey(keyMaterial.privateKeyDer, certificatePublicKeyDer, info);
-}
-
-async function verifyPrivateKeyMatchesPublicKey(privateKeyDer: Uint8Array, publicKeyDer: Uint8Array, info: RecognizedKeyInfo): Promise<boolean> {
-  try {
-    const data = new TextEncoder().encode('Private Key Gadgets certificate check');
-    const algorithm = getKeyPairCheckAlgorithm(info);
-    logApi('WebCrypto.verify', `Checking certificate public key against ${info.label} private key.`);
-    const [privateKey, publicKey] = await Promise.all([
-      crypto.subtle.importKey('pkcs8', toArrayBuffer(privateKeyDer), algorithm.importAlgorithm, false, ['sign']),
-      crypto.subtle.importKey('spki', toArrayBuffer(publicKeyDer), algorithm.importAlgorithm, false, ['verify'])
-    ]);
-    const signature = await crypto.subtle.sign(algorithm.signAlgorithm, privateKey, data);
-    const verified = await crypto.subtle.verify(algorithm.signAlgorithm, publicKey, signature, data);
-    logApi('WebCrypto.verify', verified ? 'Certificate public key matched.' : 'Certificate public key did not match.', verified ? 'ok' : 'error');
-    return verified;
-  } catch (error) {
-    logApi('WebCrypto.verify', error instanceof Error ? error.message : String(error), 'error');
-    return false;
-  }
-}
-
-function getKeyPairCheckAlgorithm(info: RecognizedKeyInfo): { importAlgorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams; signAlgorithm: AlgorithmIdentifier | EcdsaParams } {
-  if (info.family === 'RSA') {
-    const algorithm = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
-    return { importAlgorithm: algorithm, signAlgorithm: algorithm };
-  }
-
-  if (info.family === 'EC' && info.namedCurve) {
-    return { importAlgorithm: { name: 'ECDSA', namedCurve: info.namedCurve }, signAlgorithm: { name: 'ECDSA', hash: 'SHA-256' } };
-  }
-
-  if (info.family === 'Ed25519' || info.family === 'Ed448') {
-    const algorithm = { name: info.family };
-    return { importAlgorithm: algorithm, signAlgorithm: algorithm };
-  }
-
-  throw new Error(`${info.label} cannot be checked against a certificate.`);
+  logApi('WebCrypto.verify', `Checking certificate public key against ${info.label} private key.`);
+  const verified = await PkiGadgetsCore.verifyPrivateKeyMatchesPublicKey(keyMaterial.privateKeyDer, certificatePublicKeyDer, info);
+  logApi('WebCrypto.verify', verified ? 'Certificate public key matched.' : 'Certificate public key did not match.', verified ? 'ok' : 'error');
+  return verified;
 }
 
 function requestSaveKeySelection(): Promise<string[] | null> {
@@ -1039,7 +935,7 @@ function requestPkcs12Password(title: string, action: { value: string; label: st
 }
 
 async function saveBytesToFile(bytes: Uint8Array, fileName: string): Promise<void> {
-  const blob = new Blob([toArrayBuffer(bytes)], { type: 'application/x-pkcs12' });
+  const blob = new Blob([PkiGadgetsCore.toArrayBuffer(bytes)], { type: 'application/x-pkcs12' });
 
   if (window.showSaveFilePicker) {
     logApi('FileSystem.showSaveFilePicker', `Requesting save handle for ${fileName}.`);
@@ -1171,19 +1067,9 @@ async function createCsr(keyId: string, subjectDn: string, subjectBytes: Uint8Ar
     if (info.family !== 'RSA' && info.family !== 'EC') throw new Error(`${info.label} is not supported for CSR signing yet.`);
     if (!keyMaterial.privateKeyDer || !keyMaterial.publicKeyDer) throw new Error('PrivateKey and PublicKey are required to create a CSR.');
 
-    const subject = parseSubjectDnBytes(subjectBytes);
     logApi('CSR.create', `Importing ${info.label} signing keys for ${hashAlgorithm}.`);
-    const [privateKey, publicKey] = await Promise.all([
-      importSigningPrivateKey(keyMaterial.privateKeyDer, info, hashAlgorithm),
-      importSigningPublicKey(keyMaterial.publicKeyDer, info, hashAlgorithm)
-    ]);
-
-    const request = new CertificationRequest();
-    request.subject = subject;
-    await request.subjectPublicKeyInfo.importKey(publicKey);
-    request.attributes = [];
     logApi('CSR.sign', `Signing CSR for ${subjectDn}.`);
-    await request.sign(privateKey, hashAlgorithm);
+    const result = await PkiGadgetsCore.createCsr({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer, subjectDn, subjectBytes, hashAlgorithm });
 
     const existing = keyMaterial.csrs?.[0];
     if (existing && !window.confirm('CSR item already exists. Overwrite it?')) return;
@@ -1193,7 +1079,7 @@ async function createCsr(keyId: string, subjectDn: string, subjectBytes: Uint8Ar
       label: 'CSR',
       subjectDn,
       hashAlgorithm,
-      bytes: new Uint8Array(request.toSchema(true).toBER(false))
+      bytes: result.bytes
     };
 
     keyMaterial.csrs = [csr];
@@ -1222,30 +1108,9 @@ async function createSelfSignedCertificate(keyId: string, subjectDn: string, sub
     if (info.family !== 'RSA' && info.family !== 'EC') throw new Error(`${info.label} is not supported for certificate signing yet.`);
     if (!keyMaterial.privateKeyDer || !keyMaterial.publicKeyDer) throw new Error('PrivateKey and PublicKey are required to create a self-signed certificate.');
 
-    const subject = parseSubjectDnBytes(subjectBytes);
-    const notBefore = new Date();
-    const notAfter = new Date(notBefore.getTime() + validityDays * 24 * 60 * 60 * 1000);
-
     logApi('Certificate.selfSign', `Importing ${info.label} signing keys for ${hashAlgorithm}; validity ${validityDays} days.`);
-    const [privateKey, publicKey] = await Promise.all([
-      importSigningPrivateKey(keyMaterial.privateKeyDer, info, hashAlgorithm),
-      importSigningPublicKey(keyMaterial.publicKeyDer, info, hashAlgorithm)
-    ]);
-
-    const certificate = new Certificate();
-    certificate.version = 2;
-    certificate.serialNumber = new asn1js.Integer({ valueHex: toArrayBuffer(createCertificateSerialNumber()) });
-    certificate.issuer = subject;
-    certificate.subject = subject;
-    certificate.notBefore = new Time({ type: 0, value: notBefore });
-    certificate.notAfter = new Time({ type: 0, value: notAfter });
-    await certificate.subjectPublicKeyInfo.importKey(publicKey);
-    certificate.extensions = createSelfSignedCertificateExtensions(keyUsages);
-
     logApi('Certificate.sign', `Signing self-signed certificate for ${subjectDn}.`);
-    await certificate.sign(privateKey, hashAlgorithm);
-
-    const certificateDer = new Uint8Array(certificate.toSchema(true).toBER(false));
+    const { bytes: certificateDer } = await PkiGadgetsCore.createSelfSignedCertificate({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer, subjectDn, subjectBytes, hashAlgorithm, validityDays, keyUsages });
     if (keyMaterial.certificateDer && !window.confirm('Certificate item already exists. Overwrite it?')) return;
 
     keyMaterial.certificateDer = certificateDer;
@@ -1260,45 +1125,6 @@ async function createSelfSignedCertificate(keyId: string, subjectDn: string, sub
   } finally {
     setBusy(false);
   }
-}
-
-function createSelfSignedCertificateExtensions(keyUsages: string[]): Extension[] {
-  const selected = new Set(keyUsages);
-  const basicConstraints = new BasicConstraints({ cA: selected.has('keyCertSign') });
-  const keyUsage = createKeyUsageBitString(selected);
-
-  return [
-    new Extension({
-      extnID: '2.5.29.19',
-      critical: selected.has('keyCertSign'),
-      extnValue: basicConstraints.toSchema().toBER(false),
-      parsedValue: basicConstraints
-    }),
-    new Extension({
-      extnID: '2.5.29.15',
-      critical: true,
-      extnValue: keyUsage.toBER(false),
-      parsedValue: keyUsage
-    })
-  ];
-}
-
-function createKeyUsageBitString(selected: Set<string>): asn1js.BitString {
-  const highestBit = CERTIFICATE_KEY_USAGES.reduce((highest, usage) => selected.has(usage.id) ? Math.max(highest, usage.bit) : highest, 0);
-  const value = new Uint8Array(Math.floor(highestBit / 8) + 1);
-  for (const usage of CERTIFICATE_KEY_USAGES) {
-    if (!selected.has(usage.id)) continue;
-    value[Math.floor(usage.bit / 8)] |= 0x80 >> (usage.bit % 8);
-  }
-  return new asn1js.BitString({ valueHex: toArrayBuffer(value) });
-}
-
-function createCertificateSerialNumber(): Uint8Array {
-  const serial = new Uint8Array(16);
-  crypto.getRandomValues(serial);
-  serial[0] &= 0x7f;
-  if (serial.every((byte) => byte === 0)) serial[15] = 1;
-  return serial;
 }
 
 function createSubjectDn(keyId: string, subjectDn: string): void {
@@ -1348,13 +1174,11 @@ function upsertSubjectDn(keyMaterial: KeyMaterial, subjectDn: string, bytes: Uin
 }
 
 function createSubjectDnBytes(subjectDn: string): Uint8Array {
-  const subject = new RelativeDistinguishedNames({ typesAndValues: parseSubjectDn(subjectDn) });
-  return new Uint8Array(subject.toSchema().toBER(false));
+  return PkiGadgetsCore.createSubjectDn(subjectDn);
 }
 
 function getCertificateSubjectDnBytes(certificateDer: Uint8Array): Uint8Array {
-  const certificate = Certificate.fromBER(toArrayBuffer(certificateDer));
-  return new Uint8Array(certificate.subject.toSchema().toBER(false));
+  return PkiGadgetsCore.getCertificateSubjectDn(certificateDer);
 }
 
 function getSubjectDnSource(keyId: string, action: string): { subjectDn: string; subjectBytes?: Uint8Array; error?: string } {
@@ -1365,53 +1189,15 @@ function getSubjectDnSource(keyId: string, action: string): { subjectDn: string;
   }
 
   try {
-    return { subjectDn: subjectDnBytesToLdapString(subjectDn.bytes), subjectBytes: new Uint8Array(subjectDn.bytes) };
+    return { subjectDn: PkiGadgetsCore.subjectDnToString(subjectDn.bytes), subjectBytes: new Uint8Array(subjectDn.bytes) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { subjectDn: '(Invalid SubjectDN item)', error: `SubjectDN item could not be decoded: ${message}` };
   }
 }
 
-function parseSubjectDnBytes(bytes: Uint8Array): RelativeDistinguishedNames {
-  const asn1 = asn1js.fromBER(toArrayBuffer(bytes));
-  if (asn1.offset === -1) throw new Error('Invalid SubjectDN DER.');
-  if (asn1.offset !== bytes.byteLength) throw new Error('SubjectDN DER has trailing data.');
-  return new RelativeDistinguishedNames({ schema: asn1.result });
-}
-
 function subjectDnBytesToLdapString(bytes: Uint8Array): string {
-  const subject = parseSubjectDnBytes(bytes);
-  if (subject.typesAndValues.length === 0) throw new Error('SubjectDN has no attributes.');
-  return [...subject.typesAndValues].reverse().map(formatSubjectAttribute).join(', ');
-}
-
-function formatSubjectAttribute(attribute: AttributeTypeAndValue): string {
-  return `${subjectName(attribute.type)}=${escapeDnText(readSubjectAttributeValue(attribute.value))}`;
-}
-
-function subjectName(oid: string): string {
-  const names: Record<string, string> = {
-    '2.5.4.6': 'C',
-    '2.5.4.8': 'ST',
-    '2.5.4.7': 'L',
-    '2.5.4.10': 'O',
-    '2.5.4.11': 'OU',
-    '2.5.4.3': 'CN',
-    '0.9.2342.19200300.100.1.25': 'DC',
-    '2.5.4.5': 'serialNumber',
-    '1.2.840.113549.1.9.1': 'emailAddress'
-  };
-  return names[oid] ?? oid;
-}
-
-function readSubjectAttributeValue(value: { valueBlock: unknown; toString: () => string }): string {
-  const valueBlock = value.valueBlock as { value?: unknown };
-  if (typeof valueBlock.value === 'string') return valueBlock.value;
-  return value.toString();
-}
-
-function escapeDnText(value: string): string {
-  return value.replace(/[\\,=\/]/g, (character) => `\\${character}`);
+  return PkiGadgetsCore.subjectDnToString(bytes);
 }
 
 function listenForViewerChanges(instance: PkiStudioInstance): void {
@@ -1444,7 +1230,7 @@ function updateSelectedSubjectDnBytes(bytes: Uint8Array): void {
 
   const keyMaterial = keyMaterials.find((material) => material.id === selectedNode?.keyId);
   const subjectDn = keyMaterial?.subjectDns?.find((item) => item.id === selectedNode?.subjectDnId);
-  if (!subjectDn || bytesEqual(subjectDn.bytes, bytes)) return;
+  if (!subjectDn || PkiGadgetsCore.bytesEqual(subjectDn.bytes, bytes)) return;
 
   subjectDn.bytes = new Uint8Array(bytes);
   renderKeyTree();
@@ -1532,9 +1318,7 @@ async function readTextFromClipboard(): Promise<string> {
 }
 
 function derToPem(label: string, bytes: Uint8Array): string {
-  const base64 = getPkiStudioCore().bytesToBase64(bytes);
-  const lines = base64.match(/.{1,64}/g) ?? [];
-  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
+  return PkiGadgetsCore.derToPem(label, bytes);
 }
 
 function getFirstSelectableNode(keyMaterial: KeyMaterial): SelectedKeyNode | null {
@@ -1553,16 +1337,6 @@ function getDeleteLabel(keyMaterial: KeyMaterial, target: SelectedKeyNode): stri
   if (target.kind === 'public') return 'PublicKey';
   if (target.kind === 'certificate') return 'Certificate';
   return keyMaterial.label || 'item';
-}
-
-function getGenerationOptions(selection: string): SupportedKeyAlgorithm {
-  const supported = supportedAlgorithms.find((candidate) => candidate.id === selection);
-  if (!supported) throw new Error(`Unsupported algorithm: ${selection || '(none selected)'}`);
-  return supported;
-}
-
-function isCryptoKeyPair(value: CryptoKey | CryptoKeyPair): value is CryptoKeyPair {
-  return 'privateKey' in value && 'publicKey' in value;
 }
 
 function showBytes(bytes: Uint8Array, notice: string): void {
@@ -2144,141 +1918,12 @@ function isChildItemMenuTarget(button: HTMLButtonElement): boolean {
   );
 }
 
-async function importSigningPrivateKey(bytes: Uint8Array, info: RecognizedKeyInfo, hashAlgorithm: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey('pkcs8', toArrayBuffer(bytes), getSigningKeyAlgorithm(info, hashAlgorithm), false, ['sign']);
-}
-
-async function importSigningPublicKey(bytes: Uint8Array, info: RecognizedKeyInfo, hashAlgorithm: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey('spki', toArrayBuffer(bytes), getSigningKeyAlgorithm(info, hashAlgorithm), true, ['verify']);
-}
-
-function getSigningKeyAlgorithm(info: RecognizedKeyInfo, hashAlgorithm: string): RsaHashedImportParams | EcKeyImportParams {
-  if (info.family === 'RSA') return { name: 'RSASSA-PKCS1-v1_5', hash: hashAlgorithm };
-  if (info.family === 'EC' && info.namedCurve) return { name: 'ECDSA', namedCurve: info.namedCurve };
-  throw new Error(`${info.label} is not supported for CSR signing yet.`);
-}
-
-function parseSubjectDn(subjectDn: string): AttributeTypeAndValue[] {
-  const parts = splitSubjectDn(subjectDn);
-  if (parts.length === 0) throw new Error('subjectDN is required.');
-
-  return [...parts].reverse().map((part) => {
-    const separator = findUnescaped(part, '=');
-    if (separator <= 0) throw new Error(`Invalid subjectDN part: ${part}`);
-
-    const name = unescapeDnValue(part.slice(0, separator).trim());
-    const value = unescapeDnValue(part.slice(separator + 1).trim());
-    if (!name || !value) throw new Error(`Invalid subjectDN part: ${part}`);
-
-    return new AttributeTypeAndValue({ type: subjectOid(name), value: subjectValue(name, value) });
-  });
-}
-
-function splitSubjectDn(subjectDn: string): string[] {
-  const trimmed = subjectDn.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith('/')) return splitEscaped(trimmed.slice(1), '/');
-  return splitEscaped(trimmed, ',');
-}
-
-function splitEscaped(value: string, separator: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  let escaped = false;
-
-  for (const character of value) {
-    if (escaped) {
-      current += `\\${character}`;
-      escaped = false;
-      continue;
-    }
-
-    if (character === '\\') {
-      escaped = true;
-      continue;
-    }
-
-    if (character === separator) {
-      if (current.trim()) parts.push(current.trim());
-      current = '';
-      continue;
-    }
-
-    current += character;
-  }
-
-  if (escaped) current += '\\';
-  if (current.trim()) parts.push(current.trim());
-  return parts;
-}
-
-function findUnescaped(value: string, needle: string): number {
-  let escaped = false;
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (character === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (character === needle) return index;
-  }
-  return -1;
-}
-
-function unescapeDnValue(value: string): string {
-  return value.replace(/\\([,=\\/])/g, '$1');
-}
-
-function subjectOid(name: string): string {
-  const oids: Record<string, string> = {
-    C: '2.5.4.6',
-    ST: '2.5.4.8',
-    S: '2.5.4.8',
-    L: '2.5.4.7',
-    O: '2.5.4.10',
-    OU: '2.5.4.11',
-    CN: '2.5.4.3',
-    DC: '0.9.2342.19200300.100.1.25',
-    SN: '2.5.4.5',
-    SERIALNUMBER: '2.5.4.5',
-    EMAILADDRESS: '1.2.840.113549.1.9.1'
-  };
-
-  const oid = oids[name.toUpperCase()] ?? (/^\d+(\.\d+)+$/.test(name) ? name : undefined);
-  if (!oid) throw new Error(`Unsupported subjectDN attribute: ${name}`);
-  return oid;
-}
-
-function subjectValue(name: string, value: string): asn1js.Utf8String | asn1js.PrintableString | asn1js.IA5String {
-  const normalized = name.toUpperCase();
-  if (normalized === 'C') return new asn1js.PrintableString({ value });
-  if (normalized === 'EMAILADDRESS' || normalized === 'DC') return new asn1js.IA5String({ value });
-  return new asn1js.Utf8String({ value });
-}
-
 async function populateSupportedAlgorithms(): Promise<void> {
   setNotice('Detecting supported key pair algorithms...');
   supportedAlgorithms = [];
   algorithmMenu.textContent = '';
 
-  const results = await Promise.all(
-    KEY_ALGORITHM_CANDIDATES.map(async (candidate) => ({
-      candidate,
-      supported: await isKeyAlgorithmSupported(candidate)
-    }))
-  );
-
-  const uniqueSupportedAlgorithms = new Map<string, SupportedKeyAlgorithm>();
-  for (const result of results) {
-    if (!result.supported || uniqueSupportedAlgorithms.has(result.candidate.canonicalId)) continue;
-    uniqueSupportedAlgorithms.set(result.candidate.canonicalId, result.candidate);
-  }
-
-  supportedAlgorithms = [...uniqueSupportedAlgorithms.values()];
+  supportedAlgorithms = await PkiGadgetsCore.getSupportedKeyAlgorithms();
 
   if (supportedAlgorithms.length === 0) {
     algorithmMenu.innerHTML = '<button type="button" role="menuitem" disabled>No supported key pair algorithms</button>';
@@ -2302,153 +1947,8 @@ function setAlgorithmMenuOpen(open: boolean): void {
   newKeyButton.setAttribute('aria-expanded', String(open));
 }
 
-async function isKeyAlgorithmSupported(candidate: KeyAlgorithmCandidate): Promise<boolean> {
-  try {
-    const generated = await crypto.subtle.generateKey(candidate.algorithm, true, candidate.usages);
-    return isCryptoKeyPair(generated);
-  } catch {
-    return false;
-  }
-}
-
-function createRsaCandidates(
-  name: string,
-  hash: string,
-  usages: KeyUsage[]
-): KeyAlgorithmCandidate[] {
-  return [2048, 3072, 4096].map((modulusLength) => ({
-    id: `${name.toLowerCase()}-${modulusLength}`,
-    canonicalId: `rsa-${modulusLength}`,
-    canonicalLabel: `RSA ${modulusLength}`,
-    algorithm: {
-      name,
-      modulusLength,
-      publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-      hash
-    },
-    usages
-  }));
-}
-
-function createNamedCurveCandidates(name: string, curves: string[], usages: KeyUsage[]): KeyAlgorithmCandidate[] {
-  return curves.map((namedCurve) => ({
-    id: name === namedCurve ? name.toLowerCase() : `${name.toLowerCase()}-${namedCurve.toLowerCase()}`,
-    canonicalId: name === 'ECDSA' || name === 'ECDH' ? `ec-${namedCurve.toLowerCase()}` : name.toLowerCase(),
-    canonicalLabel: name === 'ECDSA' || name === 'ECDH' ? `EC ${namedCurve}` : name,
-    algorithm: name === namedCurve ? { name } : { name, namedCurve },
-    usages
-  }));
-}
-
 function recognizeKeyMaterial(material: Pick<KeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): RecognizedKeyInfo {
-  return (material.publicKeyDer ? recognizePublicKey(material.publicKeyDer) : null) ||
-    (material.privateKeyDer ? recognizePrivateKey(material.privateKeyDer) : createRecognizedKeyInfo('Unknown', 'Unknown'));
-}
-
-function recognizePublicKey(bytes: Uint8Array): RecognizedKeyInfo | null {
-  try {
-    const root = parseDer(bytes);
-    const algorithmIdentifier = root.children[0];
-    if (!algorithmIdentifier) return null;
-    const { oid, parameters } = parseAlgorithmIdentifier(bytes, algorithmIdentifier);
-
-    if (oid === '1.2.840.113549.1.1.1') {
-      const bitString = root.children[1];
-      const modulusBits = bitString ? readRsaPublicKeyBits(bytes, bitString) : null;
-      return createRecognizedKeyInfo('RSA', modulusBits ? `RSA ${modulusBits}` : 'RSA');
-    }
-
-    return infoFromAlgorithmIdentifier(oid, parameters);
-  } catch {
-    return null;
-  }
-}
-
-function recognizePrivateKey(bytes: Uint8Array): RecognizedKeyInfo {
-  try {
-    const root = parseDer(bytes);
-    const algorithmIdentifier = root.children[1];
-    if (!algorithmIdentifier) return createRecognizedKeyInfo('Unknown', 'Unknown');
-    const { oid, parameters } = parseAlgorithmIdentifier(bytes, algorithmIdentifier);
-
-    if (oid === '1.2.840.113549.1.1.1') return createRecognizedKeyInfo('RSA', 'RSA');
-    return infoFromAlgorithmIdentifier(oid, parameters);
-  } catch {
-    return createRecognizedKeyInfo('Unknown', 'Unknown');
-  }
-}
-
-function infoFromAlgorithmIdentifier(oid: string, parameters: string | null): RecognizedKeyInfo {
-  if (oid === '1.2.840.10045.2.1') {
-    const namedCurve = parameters ? curveNameFromOid(parameters) : undefined;
-    return createRecognizedKeyInfo('EC', namedCurve ? `EC ${namedCurve}` : 'EC', namedCurve);
-  }
-
-  if (oid === '1.3.101.112') return createRecognizedKeyInfo('Ed25519', 'Ed25519');
-  if (oid === '1.3.101.113') return createRecognizedKeyInfo('Ed448', 'Ed448');
-  if (oid === '1.3.101.110') return createRecognizedKeyInfo('X25519', 'X25519');
-  if (oid === '1.3.101.111') return createRecognizedKeyInfo('X448', 'X448');
-
-  return createRecognizedKeyInfo('Unknown', `Unknown (${oid})`);
-}
-
-function createRecognizedKeyInfo(
-  family: RecognizedKeyInfo['family'],
-  label: string,
-  namedCurve?: string
-): RecognizedKeyInfo {
-  return {
-    family,
-    label,
-    canSign: family === 'RSA' || family === 'EC' || family === 'Ed25519' || family === 'Ed448',
-    canDerive: family === 'EC' || family === 'X25519' || family === 'X448',
-    namedCurve
-  };
-}
-
-function parseAlgorithmIdentifier(bytes: Uint8Array, node: DerNode): { oid: string; parameters: string | null } {
-  const oidNode = node.children[0];
-  if (!oidNode || oidNode.tagClass !== 0 || oidNode.tagNumber !== 6) throw new Error('Missing algorithm OID');
-  const parameterNode = node.children[1];
-  return {
-    oid: getPkiStudioCore().decodeOid(bytes.slice(oidNode.valueStart, oidNode.valueEnd)),
-    parameters:
-      parameterNode?.tagClass === 0 && parameterNode.tagNumber === 6
-        ? getPkiStudioCore().decodeOid(bytes.slice(parameterNode.valueStart, parameterNode.valueEnd))
-        : null
-  };
-}
-
-function readRsaPublicKeyBits(bytes: Uint8Array, bitString: DerNode): number | null {
-  if (bitString.tagClass !== 0 || bitString.tagNumber !== 3 || bitString.valueEnd <= bitString.valueStart) return null;
-  const unusedBits = bytes[bitString.valueStart];
-  if (unusedBits !== 0) return null;
-
-  const rsaPublicKeyBytes = bytes.slice(bitString.valueStart + 1, bitString.valueEnd);
-  const rsaPublicKey = parseDer(rsaPublicKeyBytes);
-  const modulus = rsaPublicKey.children[0];
-  if (!modulus || modulus.tagClass !== 0 || modulus.tagNumber !== 2) return null;
-
-  let offset = modulus.valueStart;
-  while (offset < modulus.valueEnd - 1 && rsaPublicKeyBytes[offset] === 0) offset += 1;
-  const firstByte = rsaPublicKeyBytes[offset];
-  const firstByteBits = firstByte === 0 ? 0 : 8 - Math.clz32(firstByte) + 24;
-  return (modulus.valueEnd - offset - 1) * 8 + firstByteBits;
-}
-
-function curveNameFromOid(oid: string): string | undefined {
-  const names: Record<string, string> = {
-    '1.2.840.10045.3.1.7': 'P-256',
-    '1.3.132.0.34': 'P-384',
-    '1.3.132.0.35': 'P-521'
-  };
-  return names[oid];
-}
-
-function parseDer(bytes: Uint8Array): DerNode {
-  const nodes = getPkiStudioCore().parseElements(bytes, 0, bytes.length);
-  if (nodes.length !== 1) throw new Error('DER input must contain exactly one element');
-  return nodes[0];
+  return PkiGadgetsCore.recognizeKeyMaterial(material);
 }
 
 function getPkiStudioCore(): PkiStudioCoreApi {
@@ -2459,20 +1959,6 @@ function getPkiStudioCore(): PkiStudioCoreApi {
 
 function createKeyId(): string {
   return crypto.randomUUID?.() ?? String(Date.now());
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return buffer;
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
 }
 
 function escapeHtml(value: string): string {

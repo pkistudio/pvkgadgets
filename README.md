@@ -2,7 +2,7 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.0.8
+Current version: 0.1.0
 
 ## Features
 
@@ -122,6 +122,16 @@ Current version: 0.0.8
 - Keeps the PkiStudioJS Save menu available for writing the currently displayed DER document to a file.
 - Opens PkiStudioJS New Window output in a standalone viewer-only page instead of a new pvkgadgets application shell.
 - Hides the standalone PkiStudioJS file picker in the embedded application shell.
+
+### PkiGadgetsCore API
+
+- Exposes `window.PkiGadgetsCore` as a UI-independent helper API for PKI operations used by the app.
+- Detects supported WebCrypto key pair algorithms and generates PKCS#8/SPKI DER key material.
+- Recognizes key families and labels from DER key material.
+- Creates SubjectDN DER, PKCS#10 CSR DER, and self-signed X.509 certificate DER without depending on the tree UI.
+- Checks whether a certificate public key matches key material.
+- Reads and writes PKCS#12 key material through the same API surface.
+- Converts DER objects to PEM and PEM blocks back to DER.
 
 ### API Log
 
