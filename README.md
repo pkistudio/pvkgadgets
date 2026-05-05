@@ -2,7 +2,7 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.1.2
+Current version: 0.1.3
 
 ## Features
 
@@ -175,8 +175,9 @@ Private Key Gadgets is licensed under the MIT License. See [LICENSE](LICENSE).
 The application imports PkiStudioJS from the published `pkistudiojs` npm package:
 
 - `pkistudiojs/core`
+- `pkistudiojs/oid-resolver`
 - `pkistudiojs/viewer`
 
-The PkiStudioJS OID name table is emitted as a Vite asset during development and production builds, so no vendored browser assets are required under `public/`.
+The PkiStudioJS OID name table is provided through `pkistudiojs/oid-resolver`, so no vendored browser assets are required under `public/`.
 
 PKCS#12 parsing is handled by PKIjs, with ASN.1 support from asn1js.
