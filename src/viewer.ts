@@ -2,7 +2,7 @@ import { PkiStudio, PkiStudioOidResolver } from './pkistudio';
 
 window.addEventListener('DOMContentLoaded', () => {
   PkiStudio.init({
-    mount: '#pkistudio',
+    mount: '#pkistudioViewer',
     oidResolver: PkiStudioOidResolver,
     fullscreen: true
   });
