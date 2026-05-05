@@ -1,9 +1,9 @@
-import { PKISTUDIO_OIDS_URL, PkiStudio } from './pkistudio';
+import { PkiStudio, PkiStudioOidResolver } from './pkistudio';
 
 window.addEventListener('DOMContentLoaded', () => {
   PkiStudio.init({
     mount: '#pkistudio',
-    oidUrl: PKISTUDIO_OIDS_URL,
+    oidResolver: PkiStudioOidResolver,
     fullscreen: true
   });
 });

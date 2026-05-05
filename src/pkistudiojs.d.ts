@@ -3,12 +3,12 @@ declare module 'pkistudiojs/core' {
   export default api;
 }
 
-declare module 'pkistudiojs/viewer' {
+declare module 'pkistudiojs/oid-resolver' {
   const api: unknown;
   export default api;
 }
 
-declare module 'virtual:pkistudiojs-oids-url' {
-  const url: string;
-  export default url;
+declare module 'pkistudiojs/viewer' {
+  const api: unknown;
+  export default api;
 }

@@ -10,7 +10,7 @@ import {
   type RecognizedKeyInfo,
   type SubjectDnMaterial
 } from './core';
-import { PKISTUDIO_OIDS_URL, PkiStudio, PkiStudioCore } from './pkistudio';
+import { PkiStudio, PkiStudioCore, PkiStudioOidResolver } from './pkistudio';
 import type { PkiStudioApi, PkiStudioCoreApi, PkiStudioInstance } from './pkistudio-types';
 
 type SaveFilePickerOptions = {
@@ -395,11 +395,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  installPkiStudioViewerWindowRouting();
-
   viewer = PkiStudio.init({
     mount: '#viewerMount',
-    oidUrl: PKISTUDIO_OIDS_URL
+    oidResolver: PkiStudioOidResolver,
+    newWindowUrl: 'viewer.html'
   });
   logApi('pkistudiojs.init', `Viewer ${PkiStudio.version ?? '(unknown version)'} mounted.`);
   applyEmbeddedViewerStyles(viewer);
@@ -1958,20 +1957,3 @@ function isElementHidden(element: HTMLElement): boolean {
   return element.hidden === true;
 }
 
-function installPkiStudioViewerWindowRouting(): void {
-  const originalOpen = window.open.bind(window);
-  window.open = (url?: string | URL, target?: string, features?: string) => {
-    return originalOpen(rewritePkiStudioViewerUrl(url), target, features);
-  };
-}
-
-function rewritePkiStudioViewerUrl(url?: string | URL): string | URL | undefined {
-  if (typeof url !== 'string') return url;
-
-  const parsedUrl = new URL(url, window.location.href);
-  if (!parsedUrl.searchParams.has('expand') && !parsedUrl.searchParams.has('subtree')) return url;
-
-  const viewerUrl = new URL('viewer.html', window.location.href);
-  viewerUrl.search = parsedUrl.search;
-  return viewerUrl.toString();
-}

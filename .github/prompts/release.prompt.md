@@ -33,7 +33,7 @@ The release version may be omitted or set to `TBD` when development should proce
 - Create implementation work on a feature branch, never directly on `main`.
 - Do not merge the PR or publish the release until the user confirms they have reviewed the behavior, unless the user explicitly asks to proceed without that confirmation.
 - Use existing repository patterns and keep changes focused on the requested issue.
-- Keep `package.json` marked `private` unless the user explicitly asks to publish an npm package.
+- Preserve existing `package.json` package metadata unless the release requires a focused change. Do not add `private: true` only to prevent npm publication; npm publishing is outside this workflow unless explicitly requested.
 - Use non-interactive git commands.
 
 ## Inputs
