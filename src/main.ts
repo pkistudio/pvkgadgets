@@ -10,38 +10,8 @@ import {
   type RecognizedKeyInfo,
   type SubjectDnMaterial
 } from './core';
-
-type PkiStudioInstance = {
-  close?: () => void;
-  getNodeBytes?: (nodeId: string) => Uint8Array;
-  loadBytes: (bytes: Uint8Array, notice?: string) => void;
-  root?: DocumentFragment | Element;
-};
-
-type PkiStudioCoreNode = {
-  tagClass: number;
-  tagNumber: number;
-  constructed: boolean;
-  valueStart: number;
-  valueEnd: number;
-  end: number;
-  children: PkiStudioCoreNode[];
-};
-
-type PkiStudioCoreApi = {
-  base64ToBytes: (base64: string) => Uint8Array;
-  bytesToBase64: (bytes: Uint8Array) => string;
-  decodeOid: (bytes: Uint8Array) => string;
-  decodePem: (text: string) => Uint8Array;
-  hexToBytes: (text: string, options?: { allowEmpty?: boolean }) => Uint8Array;
-  parseElements: (bytes: Uint8Array, offset?: number, end?: number, depth?: number) => PkiStudioCoreNode[];
-};
-
-type PkiStudioApi = {
-  core?: PkiStudioCoreApi | null;
-  init: (options: { mount: string | Element; oidUrl?: string; shadowRoot?: boolean; newWindowUrl?: string }) => PkiStudioInstance;
-  version?: string;
-};
+import { PKISTUDIO_OIDS_URL, PkiStudio, PkiStudioCore } from './pkistudio';
+import type { PkiStudioApi, PkiStudioCoreApi, PkiStudioInstance } from './pkistudio-types';
 
 type SaveFilePickerOptions = {
   suggestedName?: string;
@@ -84,7 +54,6 @@ type SupportedKeyAlgorithm = KeyAlgorithmCandidate;
 
 type ViewerRoot = DocumentFragment | Element;
 
-const APP_BASE_URL = import.meta.env.BASE_URL;
 const APP_VERSION = PkiGadgetsCore.version;
 
 window.PkiGadgetsCore = PkiGadgetsCore;
@@ -321,7 +290,7 @@ app.innerHTML = `
       <section class="about-panel" role="document">
         <p class="about-name">Private Key Gadgets</p>
         <p class="about-version">Version ${APP_VERSION}</p>
-        <p class="about-detail">PkiStudioJS ${window.PkiStudio?.version ?? 'viewer'} embedded ASN.1 viewer</p>
+        <p class="about-detail">PkiStudioJS ${PkiStudio.version ?? 'viewer'} embedded ASN.1 viewer</p>
         <div class="dialog-actions">
           <button id="closeAboutButton" type="button">Close</button>
         </div>
@@ -420,18 +389,19 @@ closeAboutButton.addEventListener('click', () => {
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
-  if (!window.PkiStudio) {
+  if (!PkiStudio) {
     setNotice('pkistudiojs viewer could not be loaded.', true);
     logApi('pkistudiojs.init', 'Viewer API was not available.', 'error');
     return;
   }
 
-  viewer = window.PkiStudio.init({
+  installPkiStudioViewerWindowRouting();
+
+  viewer = PkiStudio.init({
     mount: '#viewerMount',
-    oidUrl: `${APP_BASE_URL}vendor/pkistudiojs/oids.json`,
-    newWindowUrl: `${APP_BASE_URL}viewer.html`
+    oidUrl: PKISTUDIO_OIDS_URL
   });
-  logApi('pkistudiojs.init', `Viewer ${window.PkiStudio.version ?? '(unknown version)'} mounted.`);
+  logApi('pkistudiojs.init', `Viewer ${PkiStudio.version ?? '(unknown version)'} mounted.`);
   applyEmbeddedViewerStyles(viewer);
   applyViewerEditState();
   listenForViewerChanges(viewer);
@@ -1952,7 +1922,7 @@ function recognizeKeyMaterial(material: Pick<KeyMaterial, 'privateKeyDer' | 'pub
 }
 
 function getPkiStudioCore(): PkiStudioCoreApi {
-  const core = window.PkiStudio?.core ?? window.PkiStudioCore;
+  const core = PkiStudio.core ?? PkiStudioCore;
   if (!core) throw new Error('pkistudiojs CoreAPI could not be loaded.');
   return core;
 }
@@ -1986,4 +1956,22 @@ function query<T extends Element>(selector: string): T {
 
 function isElementHidden(element: HTMLElement): boolean {
   return element.hidden === true;
+}
+
+function installPkiStudioViewerWindowRouting(): void {
+  const originalOpen = window.open.bind(window);
+  window.open = (url?: string | URL, target?: string, features?: string) => {
+    return originalOpen(rewritePkiStudioViewerUrl(url), target, features);
+  };
+}
+
+function rewritePkiStudioViewerUrl(url?: string | URL): string | URL | undefined {
+  if (typeof url !== 'string') return url;
+
+  const parsedUrl = new URL(url, window.location.href);
+  if (!parsedUrl.searchParams.has('expand') && !parsedUrl.searchParams.has('subtree')) return url;
+
+  const viewerUrl = new URL('viewer.html', window.location.href);
+  viewerUrl.search = parsedUrl.search;
+  return viewerUrl.toString();
 }

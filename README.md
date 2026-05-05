@@ -2,7 +2,7 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.1.1
+Current version: 0.1.2
 
 ## Features
 
@@ -115,7 +115,7 @@ Current version: 0.1.1
 
 ### Embedded ASN.1 Viewer
 
-- Embeds the vendored PkiStudioJS viewer directly in the right pane.
+- Embeds the npm-provided PkiStudioJS viewer directly in the right pane.
 - Displays the selected PrivateKey, PublicKey, Certificate, SubjectDN, or CSR DER object.
 - Keeps Viewer editing actions enabled only while a SubjectDN item is selected.
 - Disables the Viewer Load and Close actions, plus node Edit, Delete, Add, and Insert before actions, including the Insert before/Add submenus, for read-only key material such as PrivateKey, PublicKey, Certificate, and CSR.
@@ -170,14 +170,13 @@ npm run build
 
 Private Key Gadgets is licensed under the MIT License. See [LICENSE](LICENSE).
 
-## Vendor Assets
+## PkiStudioJS Dependency
 
-The prototype vendors the PkiStudioJS 0.2.6 browser assets under `public/vendor/pkistudiojs/`:
+The application imports PkiStudioJS from the published `pkistudiojs` npm package:
 
-- `pkistudio-core.js`
-- `pkistudio.js`
-- `oids.json`
+- `pkistudiojs/core`
+- `pkistudiojs/viewer`
 
-Those files are loaded directly by `index.html` so the generated key material can be displayed with the same ASN.1 viewer UI used by PkiStudioJS.
+The PkiStudioJS OID name table is emitted as a Vite asset during development and production builds, so no vendored browser assets are required under `public/`.
 
 PKCS#12 parsing is handled by PKIjs, with ASN.1 support from asn1js.
