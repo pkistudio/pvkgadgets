@@ -72,7 +72,7 @@ Derive these from the invocation when possible:
    - If `version` is known and the change is release-worthy, update version references together.
    - If `version` is pending, leave existing released version references unchanged during implementation and note the deferred version bump in the issue and PR.
    - For pvkgadgets version bumps, update at least:
-     - `package.json` `version`
+     - `package.json` `version`, which is the source for the app and `window.PkiGadgetsCore.version`
      - `package-lock.json` root package version
      - `README.md` current version and any relevant feature documentation
    - Keep generated UI behavior consistent with the existing app style.

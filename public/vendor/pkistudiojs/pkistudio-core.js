@@ -3,7 +3,7 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.PkiStudioCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : undefined, () => {
-  const VERSION = '0.2.2';
+  const VERSION = '0.2.6';
   const CLASS_NAMES = ['Universal', 'Application', 'Context-specific', 'Private'];
   const UNIVERSAL_TAGS = {
     1: 'BOOLEAN',

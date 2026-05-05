@@ -108,7 +108,7 @@ export type PkiGadgetsCoreApi = {
 
 type Asn1Node = ReturnType<typeof asn1js.fromBER>['result'];
 
-const CORE_VERSION = '0.1.0';
+const CORE_VERSION = __PVKGADGETS_VERSION__;
 
 export const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
   ...createRsaCandidates('RSASSA-PKCS1-v1_5', 'SHA-256', ['sign', 'verify']),

@@ -1,6 +1,6 @@
 (() => {
   let defaultInstance = null;
-  const APP_VERSION = '0.2.5';
+  const APP_VERSION = '0.2.6';
 
   const APP_STYLES = `:host {
   color-scheme: light dark;
