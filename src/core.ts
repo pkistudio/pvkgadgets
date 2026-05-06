@@ -17,7 +17,7 @@ export type SubjectDnMaterial = {
   bytes: Uint8Array;
 };
 
-export type PkiGadgetsKeyMaterial = Omit<Pkcs12KeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
+export type PvkGadgetsKeyMaterial = Omit<Pkcs12KeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
   privateKeyDer?: Uint8Array;
   publicKeyDer?: Uint8Array;
   csrs?: CsrMaterial[];
@@ -83,14 +83,14 @@ export type CertificateResult = {
   bytes: Uint8Array;
 };
 
-export type PkiGadgetsCoreApi = {
+export type PvkGadgetsCoreApi = {
   version: string;
   keyAlgorithms: KeyAlgorithmCandidate[];
   certificateKeyUsages: CertificateKeyUsage[];
   getSupportedKeyAlgorithms: () => Promise<KeyAlgorithmCandidate[]>;
-  generateKeyPair: (selection: string, options?: GenerateKeyPairOptions) => Promise<PkiGadgetsKeyMaterial>;
-  recognizeKeyMaterial: (material: Pick<PkiGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>) => RecognizedKeyInfo;
-  certificateMatchesKey: (material: Pick<PkiGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>, certificatePublicKeyDer: Uint8Array) => Promise<boolean>;
+  generateKeyPair: (selection: string, options?: GenerateKeyPairOptions) => Promise<PvkGadgetsKeyMaterial>;
+  recognizeKeyMaterial: (material: Pick<PvkGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>) => RecognizedKeyInfo;
+  certificateMatchesKey: (material: Pick<PvkGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>, certificatePublicKeyDer: Uint8Array) => Promise<boolean>;
   verifyPrivateKeyMatchesPublicKey: (privateKeyDer: Uint8Array, publicKeyDer: Uint8Array, info?: RecognizedKeyInfo) => Promise<boolean>;
   createSubjectDn: (subjectDn: string) => Uint8Array;
   getCertificateSubjectDn: (certificateDer: Uint8Array) => Uint8Array;
@@ -134,7 +134,7 @@ export const CERTIFICATE_KEY_USAGES: CertificateKeyUsage[] = [
   { id: 'decipherOnly', label: 'decipherOnly', bit: 8 }
 ];
 
-export const PkiGadgetsCore: PkiGadgetsCoreApi = {
+export const PvkGadgetsCore: PvkGadgetsCoreApi = {
   version: CORE_VERSION,
   keyAlgorithms: KEY_ALGORITHM_CANDIDATES,
   certificateKeyUsages: CERTIFICATE_KEY_USAGES,
@@ -174,7 +174,7 @@ async function getSupportedKeyAlgorithms(): Promise<KeyAlgorithmCandidate[]> {
   return [...uniqueSupportedAlgorithms.values()];
 }
 
-async function generateKeyPair(selection: string, options: GenerateKeyPairOptions = {}): Promise<PkiGadgetsKeyMaterial> {
+async function generateKeyPair(selection: string, options: GenerateKeyPairOptions = {}): Promise<PvkGadgetsKeyMaterial> {
   const { algorithm, usages } = getGenerationOptions(selection);
   const generated = await crypto.subtle.generateKey(algorithm, true, usages);
 
@@ -244,7 +244,7 @@ function isCryptoKeyPair(value: CryptoKey | CryptoKeyPair): value is CryptoKeyPa
   return 'privateKey' in value && 'publicKey' in value;
 }
 
-function recognizeKeyMaterial(material: Pick<PkiGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): RecognizedKeyInfo {
+function recognizeKeyMaterial(material: Pick<PvkGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): RecognizedKeyInfo {
   return (material.publicKeyDer ? recognizePublicKey(material.publicKeyDer) : null) ||
     (material.privateKeyDer ? recognizePrivateKey(material.privateKeyDer) : createRecognizedKeyInfo('Unknown', 'Unknown'));
 }
@@ -308,7 +308,7 @@ function createRecognizedKeyInfo(
   };
 }
 
-async function certificateMatchesKey(material: Pick<PkiGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>, certificatePublicKeyDer: Uint8Array): Promise<boolean> {
+async function certificateMatchesKey(material: Pick<PvkGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>, certificatePublicKeyDer: Uint8Array): Promise<boolean> {
   if (material.publicKeyDer) return bytesEqual(material.publicKeyDer, certificatePublicKeyDer);
   if (!material.privateKeyDer) throw new Error('PrivateKey item is required before adding a certificate.');
 
@@ -723,7 +723,7 @@ function curveNameFromOid(oid: string): string | undefined {
   return names[oid];
 }
 
-function getDefaultKeyLabel(keyMaterial: Pick<PkiGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): string {
+function getDefaultKeyLabel(keyMaterial: Pick<PvkGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): string {
   return recognizeKeyMaterial({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer }).label;
 }
 

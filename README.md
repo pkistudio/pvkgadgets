@@ -2,7 +2,7 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.2.0
+Current version: 0.3.0
 
 ## Features
 
@@ -123,9 +123,9 @@ Current version: 0.2.0
 - Opens PkiStudioJS New Window output in a standalone viewer-only page instead of a new pvkgadgets application shell.
 - Hides the standalone PkiStudioJS file picker in the embedded application shell.
 
-### PkiGadgetsCore API
+### PvkGadgetsCore API
 
-- Exposes `PkiGadgetsCore` through npm imports and `window.PkiGadgetsCore` as a UI-independent helper API for PKI operations used by the app.
+- Exposes `PvkGadgetsCore` through npm imports and `window.PvkGadgetsCore` as a UI-independent helper API for private-key operations used by the app.
 - Detects supported WebCrypto key pair algorithms and generates PKCS#8/SPKI DER key material.
 - Recognizes key families and labels from DER key material.
 - Creates SubjectDN DER, PKCS#10 CSR DER, and self-signed X.509 certificate DER without depending on the tree UI.
@@ -135,10 +135,10 @@ Current version: 0.2.0
 
 ### npm Package API
 
-- Exports the core helper API from `pvkgadgets` and `pvkgadgets/core`.
-- Exports PKCS#12 helpers from `pvkgadgets/pkcs12`.
-- Exports the browser app initializer from `pvkgadgets/app`.
-- Exports app styling from `pvkgadgets/styles.css`.
+- Exports the core helper API from `@pkistudio/pvkgadgets` and `@pkistudio/pvkgadgets/core`.
+- Exports PKCS#12 helpers from `@pkistudio/pvkgadgets/pkcs12`.
+- Exports the browser app initializer from `@pkistudio/pvkgadgets/app`.
+- Exports app styling from `@pkistudio/pvkgadgets/styles.css`.
 - Lets Webview hosts provide confirmation, save-file, and DER-viewer callbacks without depending on VS Code APIs inside this package.
 
 ### API Log
@@ -185,29 +185,29 @@ npm run pack:dry-run
 Install the package in a browser or Webview project:
 
 ```sh
-npm install pvkgadgets
+npm install @pkistudio/pvkgadgets
 ```
 
 Use the UI-independent API:
 
 ```ts
-import { PkiGadgetsCore } from 'pvkgadgets';
+import { PvkGadgetsCore } from '@pkistudio/pvkgadgets';
 
-const algorithms = await PkiGadgetsCore.getSupportedKeyAlgorithms();
-const keyPair = await PkiGadgetsCore.generateKeyPair(algorithms[0].id);
+const algorithms = await PvkGadgetsCore.getSupportedKeyAlgorithms();
+const keyPair = await PvkGadgetsCore.generateKeyPair(algorithms[0].id);
 ```
 
 Use the PKCS#12 helpers directly when a host application owns the surrounding UI:
 
 ```ts
-import { readPkcs12Keys, writePkcs12Keys } from 'pvkgadgets/pkcs12';
+import { readPkcs12Keys, writePkcs12Keys } from '@pkistudio/pvkgadgets/pkcs12';
 ```
 
 Mount the browser application from an embedded Webview or browser app:
 
 ```ts
-import { initPrivateKeyGadgets } from 'pvkgadgets/app';
-import 'pvkgadgets/styles.css';
+import { initPrivateKeyGadgets } from '@pkistudio/pvkgadgets/app';
+import '@pkistudio/pvkgadgets/styles.css';
 
 initPrivateKeyGadgets({
 	mount: '#app',
@@ -226,7 +226,7 @@ initPrivateKeyGadgets({
 });
 ```
 
-The package keeps VS Code-specific file access, dialogs, and Webview lifecycle outside `pvkgadgets`; hosts pass those behaviors through the `host` callbacks.
+The package keeps VS Code-specific file access, dialogs, and Webview lifecycle outside `@pkistudio/pvkgadgets`; hosts pass those behaviors through the `host` callbacks.
 
 ## License
 
