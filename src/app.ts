@@ -2,11 +2,11 @@ import './styles.css';
 import { Certificate } from 'pkijs';
 import {
   CERTIFICATE_KEY_USAGES,
-  PkiGadgetsCore,
+  PvkGadgetsCore,
   type CsrMaterial,
   type KeyAlgorithmCandidate,
-  type PkiGadgetsCoreApi,
-  type PkiGadgetsKeyMaterial,
+  type PvkGadgetsCoreApi,
+  type PvkGadgetsKeyMaterial,
   type RecognizedKeyInfo,
   type SubjectDnMaterial
 } from './core';
@@ -27,12 +27,12 @@ declare global {
   interface Window {
     PkiStudio?: PkiStudioApi;
     PkiStudioCore?: PkiStudioCoreApi;
-    PkiGadgetsCore?: PkiGadgetsCoreApi;
+    PvkGadgetsCore?: PvkGadgetsCoreApi;
     showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<SaveFileHandle>;
   }
 }
 
-type KeyMaterial = Omit<PkiGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
+type KeyMaterial = Omit<PvkGadgetsKeyMaterial, 'privateKeyDer' | 'publicKeyDer'> & {
   privateKeyDer?: Uint8Array;
   publicKeyDer?: Uint8Array;
   csrs?: CsrMaterial[];
@@ -82,9 +82,9 @@ export type PrivateKeyGadgetsAppInstance = {
   close: () => void;
 };
 
-const APP_VERSION = PkiGadgetsCore.version;
+const APP_VERSION = PvkGadgetsCore.version;
 
-if (typeof window !== 'undefined') window.PkiGadgetsCore = PkiGadgetsCore;
+if (typeof window !== 'undefined') window.PvkGadgetsCore = PvkGadgetsCore;
 
 const EMBEDDED_VIEWER_STYLES = `
 :host {
@@ -722,7 +722,7 @@ async function generateKeyPair(selection: string): Promise<void> {
   try {
     logApi('WebCrypto.generateKey', `${selection} requested.`);
     logApi('WebCrypto.exportKey', 'Exporting generated key pair as PKCS#8/SPKI DER.');
-    const keyMaterial = await PkiGadgetsCore.generateKeyPair(selection, { createId: createKeyId });
+    const keyMaterial = await PvkGadgetsCore.generateKeyPair(selection, { createId: createKeyId });
 
     addKeyMaterial(keyMaterial);
     setNotice(`Generated ${recognizeKeyMaterial(keyMaterial).label}.`);
@@ -742,7 +742,7 @@ async function openPkcs12File(file: File, password: string): Promise<void> {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     logApi('PKCS#12.open', `Reading ${file.name} (${bytes.byteLength} bytes).`);
-    const openedKeys = (await PkiGadgetsCore.readPkcs12(bytes, password, { sourceName: file.name, createId: createKeyId })).map((key) => ({
+    const openedKeys = (await PvkGadgetsCore.readPkcs12(bytes, password, { sourceName: file.name, createId: createKeyId })).map((key) => ({
       ...key,
       label: key.label || getDefaultKeyLabel(key)
     }));
@@ -784,7 +784,7 @@ async function addCertificateBytes(keyId: string, certificateDer: Uint8Array, so
   setNotice(`Adding Certificate from ${sourceName}...`);
 
   try {
-    const certificate = Certificate.fromBER(PkiGadgetsCore.toArrayBuffer(certificateDer));
+    const certificate = Certificate.fromBER(PvkGadgetsCore.toArrayBuffer(certificateDer));
     const certificatePublicKeyDer = new Uint8Array(certificate.subjectPublicKeyInfo.toSchema().toBER(false));
     const match = await certificateMatchesKeyMaterial(keyMaterial, certificatePublicKeyDer);
 
@@ -812,7 +812,7 @@ async function savePkcs12File(keyIds: string[], password: string): Promise<void>
   try {
     const selectedKeys = keyIds.map((keyId) => keyMaterials.find((material) => material.id === keyId)).filter((material): material is KeyMaterial => Boolean(material));
     logApi('PKCS#12.save', `Creating PKCS#12 for ${selectedKeys.length} key pair${selectedKeys.length === 1 ? '' : 's'}.`);
-    const bytes = await PkiGadgetsCore.writePkcs12(selectedKeys, password);
+    const bytes = await PvkGadgetsCore.writePkcs12(selectedKeys, password);
     const fileName = getPkcs12FileName(selectedKeys);
     await saveBytesToFile(bytes, fileName);
     setNotice(`Saved ${selectedKeys.length} key pair${selectedKeys.length === 1 ? '' : 's'} to ${fileName}.`);
@@ -834,18 +834,18 @@ async function readCertificateFile(file: File): Promise<Uint8Array> {
 function readCertificatePemText(text: string): Uint8Array {
   const pemMatch = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/i.exec(text);
   if (!pemMatch) throw new Error('Certificate PEM was not found.');
-  return PkiGadgetsCore.pemToDer(pemMatch[0], 'CERTIFICATE');
+  return PvkGadgetsCore.pemToDer(pemMatch[0], 'CERTIFICATE');
 }
 
 async function certificateMatchesKeyMaterial(keyMaterial: KeyMaterial, certificatePublicKeyDer: Uint8Array): Promise<boolean> {
-  if (keyMaterial.publicKeyDer) return PkiGadgetsCore.bytesEqual(keyMaterial.publicKeyDer, certificatePublicKeyDer);
+  if (keyMaterial.publicKeyDer) return PvkGadgetsCore.bytesEqual(keyMaterial.publicKeyDer, certificatePublicKeyDer);
   if (!keyMaterial.privateKeyDer) throw new Error('PrivateKey item is required before adding a certificate.');
 
   const info = recognizeKeyMaterial(keyMaterial);
   if (!info.canSign) throw new Error(`${info.label} cannot be checked against a certificate.`);
 
   logApi('WebCrypto.verify', `Checking certificate public key against ${info.label} private key.`);
-  const verified = await PkiGadgetsCore.verifyPrivateKeyMatchesPublicKey(keyMaterial.privateKeyDer, certificatePublicKeyDer, info);
+  const verified = await PvkGadgetsCore.verifyPrivateKeyMatchesPublicKey(keyMaterial.privateKeyDer, certificatePublicKeyDer, info);
   logApi('WebCrypto.verify', verified ? 'Certificate public key matched.' : 'Certificate public key did not match.', verified ? 'ok' : 'error');
   return verified;
 }
@@ -947,7 +947,7 @@ async function saveBytesToFile(bytes: Uint8Array, fileName: string): Promise<voi
     return;
   }
 
-  const blob = new Blob([PkiGadgetsCore.toArrayBuffer(bytes)], { type: 'application/x-pkcs12' });
+  const blob = new Blob([PvkGadgetsCore.toArrayBuffer(bytes)], { type: 'application/x-pkcs12' });
 
   if (window.showSaveFilePicker) {
     logApi('FileSystem.showSaveFilePicker', `Requesting save handle for ${fileName}.`);
@@ -1086,7 +1086,7 @@ async function createCsr(keyId: string, subjectDn: string, subjectBytes: Uint8Ar
 
     logApi('CSR.create', `Importing ${info.label} signing keys for ${hashAlgorithm}.`);
     logApi('CSR.sign', `Signing CSR for ${subjectDn}.`);
-    const result = await PkiGadgetsCore.createCsr({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer, subjectDn, subjectBytes, hashAlgorithm });
+    const result = await PvkGadgetsCore.createCsr({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer, subjectDn, subjectBytes, hashAlgorithm });
 
     const existing = keyMaterial.csrs?.[0];
     if (existing && !(await confirmAction('CSR item already exists. Overwrite it?'))) return;
@@ -1127,7 +1127,7 @@ async function createSelfSignedCertificate(keyId: string, subjectDn: string, sub
 
     logApi('Certificate.selfSign', `Importing ${info.label} signing keys for ${hashAlgorithm}; validity ${validityDays} days.`);
     logApi('Certificate.sign', `Signing self-signed certificate for ${subjectDn}.`);
-    const { bytes: certificateDer } = await PkiGadgetsCore.createSelfSignedCertificate({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer, subjectDn, subjectBytes, hashAlgorithm, validityDays, keyUsages });
+    const { bytes: certificateDer } = await PvkGadgetsCore.createSelfSignedCertificate({ privateKeyDer: keyMaterial.privateKeyDer, publicKeyDer: keyMaterial.publicKeyDer, subjectDn, subjectBytes, hashAlgorithm, validityDays, keyUsages });
     if (keyMaterial.certificateDer && !(await confirmAction('Certificate item already exists. Overwrite it?'))) return;
 
     keyMaterial.certificateDer = certificateDer;
@@ -1191,11 +1191,11 @@ async function upsertSubjectDn(keyMaterial: KeyMaterial, subjectDn: string, byte
 }
 
 function createSubjectDnBytes(subjectDn: string): Uint8Array {
-  return PkiGadgetsCore.createSubjectDn(subjectDn);
+  return PvkGadgetsCore.createSubjectDn(subjectDn);
 }
 
 function getCertificateSubjectDnBytes(certificateDer: Uint8Array): Uint8Array {
-  return PkiGadgetsCore.getCertificateSubjectDn(certificateDer);
+  return PvkGadgetsCore.getCertificateSubjectDn(certificateDer);
 }
 
 function getSubjectDnSource(keyId: string, action: string): { subjectDn: string; subjectBytes?: Uint8Array; error?: string } {
@@ -1206,7 +1206,7 @@ function getSubjectDnSource(keyId: string, action: string): { subjectDn: string;
   }
 
   try {
-    return { subjectDn: PkiGadgetsCore.subjectDnToString(subjectDn.bytes), subjectBytes: new Uint8Array(subjectDn.bytes) };
+    return { subjectDn: PvkGadgetsCore.subjectDnToString(subjectDn.bytes), subjectBytes: new Uint8Array(subjectDn.bytes) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { subjectDn: '(Invalid SubjectDN item)', error: `SubjectDN item could not be decoded: ${message}` };
@@ -1214,7 +1214,7 @@ function getSubjectDnSource(keyId: string, action: string): { subjectDn: string;
 }
 
 function subjectDnBytesToLdapString(bytes: Uint8Array): string {
-  return PkiGadgetsCore.subjectDnToString(bytes);
+  return PvkGadgetsCore.subjectDnToString(bytes);
 }
 
 function listenForViewerChanges(instance: PkiStudioInstance): void {
@@ -1287,7 +1287,7 @@ function updateSelectedSubjectDnBytes(bytes: Uint8Array): void {
 
   const keyMaterial = keyMaterials.find((material) => material.id === selectedNode?.keyId);
   const subjectDn = keyMaterial?.subjectDns?.find((item) => item.id === selectedNode?.subjectDnId);
-  if (!subjectDn || PkiGadgetsCore.bytesEqual(subjectDn.bytes, bytes)) return;
+  if (!subjectDn || PvkGadgetsCore.bytesEqual(subjectDn.bytes, bytes)) return;
 
   subjectDn.bytes = new Uint8Array(bytes);
   renderKeyTree();
@@ -1375,7 +1375,7 @@ async function readTextFromClipboard(): Promise<string> {
 }
 
 function derToPem(label: string, bytes: Uint8Array): string {
-  return PkiGadgetsCore.derToPem(label, bytes);
+  return PvkGadgetsCore.derToPem(label, bytes);
 }
 
 function getFirstSelectableNode(keyMaterial: KeyMaterial): SelectedKeyNode | null {
@@ -1981,7 +1981,7 @@ async function populateSupportedAlgorithms(): Promise<void> {
   supportedAlgorithms = [];
   algorithmMenu.textContent = '';
 
-  supportedAlgorithms = await PkiGadgetsCore.getSupportedKeyAlgorithms();
+  supportedAlgorithms = await PvkGadgetsCore.getSupportedKeyAlgorithms();
 
   if (supportedAlgorithms.length === 0) {
     algorithmMenu.innerHTML = '<button type="button" role="menuitem" disabled>No supported key pair algorithms</button>';
@@ -2006,7 +2006,7 @@ function setAlgorithmMenuOpen(open: boolean): void {
 }
 
 function recognizeKeyMaterial(material: Pick<KeyMaterial, 'privateKeyDer' | 'publicKeyDer'>): RecognizedKeyInfo {
-  return PkiGadgetsCore.recognizeKeyMaterial(material);
+  return PvkGadgetsCore.recognizeKeyMaterial(material);
 }
 
 function getPkiStudioCore(): PkiStudioCoreApi {

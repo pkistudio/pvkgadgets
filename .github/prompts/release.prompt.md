@@ -26,7 +26,7 @@ The release version may be omitted or set to `TBD` when development should proce
 
 - This prompt is a workflow guide only and does not grant repository permissions.
 - Push, tag, release, merge, and secret-backed Actions operations are possible only for users or tokens with the required repository permissions.
-- npm publication requires npm package ownership or a configured npm Trusted Publisher for `pkistudio/pvkgadgets` and `.github/workflows/publish-npm.yml`.
+- npm publication requires npm package ownership or a configured npm Trusted Publisher for `@pkistudio/pvkgadgets` and `.github/workflows/publish-npm.yml`.
 - Work in the current repository only.
 - Check the current branch, remote, and working tree before making changes.
 - Never discard uncommitted user changes.
@@ -54,7 +54,7 @@ Derive these from the invocation when possible:
    - Run a clean working tree check.
    - Confirm the current default branch and remote.
    - If `version` is known, check existing tags so the requested release version does not already exist.
-   - If `version` is known, check whether `pvkgadgets@<version>` is already published on npm so reruns do not attempt to publish an immutable version twice.
+   - If `version` is known, check whether `@pkistudio/pvkgadgets@<version>` is already published on npm so reruns do not attempt to publish an immutable version twice.
    - If `version` is pending, record that the final version must be chosen before version bumps, tagging, or release publication.
 
 2. Create Issue
@@ -74,7 +74,7 @@ Derive these from the invocation when possible:
    - If `version` is known and the change is release-worthy, update version references together.
    - If `version` is pending, leave existing released version references unchanged during implementation and note the deferred version bump in the issue and PR.
    - For pvkgadgets version bumps, update at least:
-     - `package.json` `version`, which is the source for the app and `window.PkiGadgetsCore.version`
+     - `package.json` `version`, which is the source for the app and `window.PvkGadgetsCore.version`
      - `package-lock.json` root package version
      - `README.md` current version and any relevant feature documentation
    - npm `exports`, package `files`, type declarations, and workflow metadata when the release changes npm package shape
@@ -125,7 +125,7 @@ Derive these from the invocation when possible:
     - Create an annotated tag `vX.Y.Z` on the merged `main` commit.
     - Push the tag.
          - The `Publish npm package` workflow runs on `v*` tag pushes and publishes with npm Trusted Publishing. It expects:
-            - npm package name: `pvkgadgets`
+            - npm package name: `@pkistudio/pvkgadgets`
             - GitHub owner/repository: `pkistudio/pvkgadgets`
             - workflow filename: `publish-npm.yml`
             - npm Trusted Publishing environment: none / blank, unless the workflow is later changed to use one.
@@ -133,7 +133,7 @@ Derive these from the invocation when possible:
          - If the version was already published manually, do not rerun the publish job for the same tag/version; npm versions are immutable and the rerun will fail.
     - Create a GitHub Release named `vX.Y.Z` with release notes summarizing user-facing changes and referencing the issue.
     - Mark it as the latest stable release, not draft and not prerelease, unless instructed otherwise.
-      - After publication, verify `npm view pvkgadgets@X.Y.Z version dist-tags dist.tarball --json` and, when practical, perform a fresh temporary install from npm and import the package entry points.
+      - After publication, verify `npm view @pkistudio/pvkgadgets@X.Y.Z version dist-tags dist.tarball --json` and, when practical, perform a fresh temporary install from npm and import the package entry points.
 
 11. Deploy GitHub Pages
    - Confirm `.github/workflows/pages.yml` exists and deploys the Vite `dist` output to GitHub Pages.
