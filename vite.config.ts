@@ -11,9 +11,19 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      preserveEntrySignatures: 'strict',
       input: {
         main: resolve(__dirname, 'index.html'),
-        viewer: resolve(__dirname, 'viewer.html')
+        viewer: resolve(__dirname, 'viewer.html'),
+        core: resolve(__dirname, 'src/core.ts'),
+        pkcs12: resolve(__dirname, 'src/pkcs12.ts'),
+        app: resolve(__dirname, 'src/app.ts')
+      },
+      output: {
+        entryFileNames: '[name].js',
+        chunkFileNames: 'chunks/[name]-[hash].js',
+        assetFileNames: (assetInfo) => assetInfo.names?.some((name) => name.endsWith('.css')) ? 'styles.css' : 'assets/[name][extname]',
+        minifyInternalExports: false
       }
     }
   }

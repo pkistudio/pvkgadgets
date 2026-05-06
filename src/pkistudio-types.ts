@@ -6,9 +6,11 @@ export type PkiStudioInstance = {
 };
 
 export type PkiStudioCoreNode = {
+  id?: string;
   tagClass: number;
   tagNumber: number;
   constructed: boolean;
+  encapsulated?: boolean;
   valueStart: number;
   valueEnd: number;
   end: number;
@@ -21,6 +23,7 @@ export type PkiStudioCoreApi = {
   bytesToBase64: (bytes: Uint8Array) => string;
   decodeOid: (bytes: Uint8Array) => string;
   decodePem: (text: string) => Uint8Array;
+  encodeNodes: (nodes: PkiStudioCoreNode[]) => Uint8Array;
   hexToBytes: (text: string, options?: { allowEmpty?: boolean }) => Uint8Array;
   parseElements: (bytes: Uint8Array, offset?: number, end?: number, depth?: number) => PkiStudioCoreNode[];
 };
