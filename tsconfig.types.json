@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationDir": "dist/types",
+    "emitDeclarationOnly": true,
+    "noEmit": false
+  },
+  "include": [
+    "src/app.ts",
+    "src/core.ts",
+    "src/pkcs12.ts",
+    "src/pkistudio-types.ts",
+    "src/*.d.ts"
+  ]
+}

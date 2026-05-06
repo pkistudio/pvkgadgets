@@ -1,13 +1,57 @@
 {
   "name": "pvkgadgets",
-  "version": "0.1.4",
+  "version": "0.2.0",
+  "description": "Browser PKI key material tools and reusable Private Key Gadgets API.",
   "type": "module",
+  "main": "./dist/core.js",
+  "module": "./dist/core.js",
+  "types": "./dist/types/core.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./core": {
+      "types": "./dist/types/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./pkcs12": {
+      "types": "./dist/types/pkcs12.d.ts",
+      "import": "./dist/pkcs12.js"
+    },
+    "./app": {
+      "types": "./dist/types/app.d.ts",
+      "import": "./dist/app.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc && vite build",
+    "build": "tsc --noEmit && vite build && tsc -p tsconfig.types.json",
     "preview": "vite preview --host 0.0.0.0",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "pack:dry-run": "npm pack --dry-run"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pkistudio/pvkgadgets"
+  },
+  "keywords": [
+    "pki",
+    "pkcs12",
+    "webcrypto",
+    "certificate",
+    "csr"
+  ],
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0",
