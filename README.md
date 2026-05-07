@@ -122,7 +122,7 @@ Current version: 0.3.0
 - Keeps Viewer editing actions enabled only while a SubjectDN item is selected.
 - Keeps the PkiStudioJS Save menu available for writing the currently displayed DER document to a file.
 - Opens PkiStudioJS New Window output in a standalone viewer-only page instead of a new pvkgadgets application shell.
-- Accepts PkiStudioJS New Window transfer data in the pvkgadgets app shell and routes it to either PKCS#12 import or the ASN.1 viewer by inspecting the transferred bytes.
+- Accepts PkiStudioJS New Window transfer data in the pvkgadgets app shell; PKCS#12 data is imported by pvkgadgets, while other ASN.1 data is redirected to the standalone viewer-only page.
 - Hides the standalone PkiStudioJS file picker in the embedded application shell.
 
 ### PvkGadgetsCore API

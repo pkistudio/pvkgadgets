@@ -393,6 +393,7 @@ const bootViewer = async () => {
   }
 
   const transferredData = takeTransferredViewerData();
+  if (transferredData && !isPkcs12Data(transferredData.bytes, transferredData.label) && redirectToStandaloneViewer(transferredData)) return;
 
   viewer = PkiStudio.init({
     mount: viewerMount,
@@ -1486,17 +1487,22 @@ function isViewerEditableSelection(): boolean {
   return selectedNode?.kind === 'subjectdn';
 }
 
-function takeTransferredViewerData(): { label: string; bytes: Uint8Array } | null {
+function takeTransferredViewerData(): { label: string; bytes: Uint8Array; theme?: AppTheme } | null {
   const url = new URL(window.location.href);
   const transferType = url.searchParams.has('subtree') ? 'subtree' : 'expand';
   const key = url.searchParams.get(transferType);
   if (!key) return null;
+  const theme = url.searchParams.get('theme');
 
   try {
     const payload = JSON.parse(localStorage.getItem(key) || 'null') as { label?: string; bytes?: string } | null;
     localStorage.removeItem(key);
     if (!payload?.bytes) throw new Error('Transferred ASN.1 data was not found.');
-    return { label: payload.label || 'transferred ASN.1 data', bytes: getPkiStudioCore().base64ToBytes(payload.bytes) };
+    return {
+      label: payload.label || 'transferred ASN.1 data',
+      bytes: getPkiStudioCore().base64ToBytes(payload.bytes),
+      theme: theme === 'dark' || theme === 'light' ? theme : undefined
+    };
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
     return null;
@@ -1505,6 +1511,26 @@ function takeTransferredViewerData(): { label: string; bytes: Uint8Array } | nul
     url.searchParams.delete('theme');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }
+}
+
+function redirectToStandaloneViewer(transfer: { label: string; bytes: Uint8Array; theme?: AppTheme }): boolean {
+  const core = getPkiStudioCore();
+  const key = `pvkgadgets-viewer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  try {
+    localStorage.setItem(key, JSON.stringify({ label: transfer.label, bytes: core.bytesToBase64(transfer.bytes) }));
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+    return false;
+  }
+
+  const url = new URL(options.viewer?.newWindowUrl ?? 'viewer.html', window.location.href);
+  url.searchParams.set('subtree', key);
+  const theme = transfer.theme ?? getRequestedTheme();
+  if (theme) url.searchParams.set('theme', theme);
+  url.hash = '';
+  window.location.replace(url.toString());
+  return true;
 }
 
 function getViewerInputBytes(bytes: Uint8Array): Uint8Array {
