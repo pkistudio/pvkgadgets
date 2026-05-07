@@ -20,6 +20,7 @@ Current version: 0.3.0
 ### PKCS#12 Import
 
 - Imports PKCS#12 files (`.p12`, `.pfx`) through the Open menu.
+- Routes Open menu input automatically: PKCS#12 data opens in pvkgadgets, while other ASN.1 DER or PEM data opens in the embedded PkiStudioJS viewer.
 - Supports password-protected PKCS#12 files.
 - Extracts private key material and matching certificates when present.
 - Adds matching certificates as child items under the imported key pair.
@@ -117,10 +118,11 @@ Current version: 0.3.0
 
 - Embeds the npm-provided PkiStudioJS viewer directly in the right pane.
 - Displays the selected PrivateKey, PublicKey, Certificate, SubjectDN, or CSR DER object.
+- Uses PkiStudioJS native read-only mode for read-only key material such as PrivateKey, PublicKey, Certificate, and CSR.
 - Keeps Viewer editing actions enabled only while a SubjectDN item is selected.
-- Disables the Viewer Load and Close actions, plus node Edit, Delete, Add, and Insert before actions, including the Insert before/Add submenus, for read-only key material such as PrivateKey, PublicKey, Certificate, and CSR.
 - Keeps the PkiStudioJS Save menu available for writing the currently displayed DER document to a file.
 - Opens PkiStudioJS New Window output in a standalone viewer-only page instead of a new pvkgadgets application shell.
+- Accepts PkiStudioJS New Window transfer data in the pvkgadgets app shell and routes it to either PKCS#12 import or the ASN.1 viewer by inspecting the transferred bytes.
 - Hides the standalone PkiStudioJS file picker in the embedded application shell.
 
 ### PvkGadgetsCore API
@@ -209,7 +211,7 @@ Mount the browser application from an embedded Webview or browser app:
 import { initPrivateKeyGadgets } from '@pkistudio/pvkgadgets/app';
 import '@pkistudio/pvkgadgets/styles.css';
 
-initPrivateKeyGadgets({
+const app = initPrivateKeyGadgets({
 	mount: '#app',
 	theme: 'dark',
 	host: {
@@ -224,6 +226,8 @@ initPrivateKeyGadgets({
 		}
 	}
 });
+
+await app.openBytes(new Uint8Array([0x30, 0x03, 0x02, 0x01, 0x01]), 'sample.der');
 ```
 
 The package keeps VS Code-specific file access, dialogs, and Webview lifecycle outside `@pkistudio/pvkgadgets`; hosts pass those behaviors through the `host` callbacks.
@@ -234,12 +238,12 @@ Private Key Gadgets is licensed under the MIT License. See [LICENSE](LICENSE).
 
 ## PkiStudioJS Dependency
 
-The application imports PkiStudioJS from the published `pkistudiojs` npm package:
+The application imports PkiStudioJS from the published `@pkistudio/pkistudiojs` npm package:
 
-- `pkistudiojs/core`
-- `pkistudiojs/oid-resolver`
-- `pkistudiojs/viewer`
+- `@pkistudio/pkistudiojs/core`
+- `@pkistudio/pkistudiojs/oid-resolver`
+- `@pkistudio/pkistudiojs/viewer`
 
-The PkiStudioJS OID name table is provided through `pkistudiojs/oid-resolver`, so no vendored browser assets are required under `public/`.
+The PkiStudioJS OID name table is provided through `@pkistudio/pkistudiojs/oid-resolver`, so no vendored browser assets are required under `public/`.
 
 PKCS#12 parsing is handled by PKIjs, with ASN.1 support from asn1js.

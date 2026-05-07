@@ -3,6 +3,7 @@ export type PkiStudioInstance = {
   getNodeBytes?: (nodeId: string) => Uint8Array;
   loadBytes: (bytes: Uint8Array, notice?: string) => void;
   root?: DocumentFragment | Element;
+  setEditable?: (editable: boolean) => void;
 };
 
 export type PkiStudioCoreNode = {
@@ -44,6 +45,7 @@ export type PkiStudioApi = {
     newWindowUrl?: string;
     shadowRoot?: boolean;
     fullscreen?: boolean;
+    editable?: boolean;
   }) => PkiStudioInstance;
   version?: string;
 };
