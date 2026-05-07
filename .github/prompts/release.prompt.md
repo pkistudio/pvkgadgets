@@ -1,5 +1,5 @@
 ---
-description: "Use when: running the pvkgadgets issue-to-release workflow, including issue creation, branch work, PR, merge, tag, GitHub Release, npm publish, Trusted Publishing, GitHub Pages deployment, and Actions checks."
+description: "Use when: running the pvkgadgets issue-to-release workflow, including issue creation, branch work, PR, merge, tag, GitHub Release, npm publish, Trusted Publishing, GitHub Pages status, and Actions checks."
 name: "pvkgadgets release workflow"
 argument-hint: "[version|TBD] [#issue] <short feature or fix summary>"
 agent: "agent"
@@ -7,20 +7,46 @@ agent: "agent"
 
 # pvkgadgets Release Workflow
 
-Run the standard pvkgadgets release workflow from issue creation through GitHub Release publication, npm publication, and GitHub Pages deployment.
+Run the standard pvkgadgets release workflow from issue creation through GitHub Release, npm publication, and GitHub Pages status confirmation.
 
 Expected invocation examples:
 
 ```text
-/release 0.0.2 "Improve PKCS#12 import"
-/release v0.0.2 "Fix certificate matching"
+/release 0.3.1 "Improve PKCS#12 import"
+/release v0.3.1 "Fix certificate matching"
 /release TBD "Improve CSR generation"
 /release "Improve API log output"
 /release TBD #12
-/release 0.0.3 #12 "Implement requested export option"
+/release 0.3.2 #12 "Implement requested export option"
 ```
 
 The release version may be omitted or set to `TBD` when development should proceed before the final version is known. If an existing issue number is supplied, use that issue instead of creating a duplicate issue. If the feature summary, desired release scope, issue reference, or whether a known-looking first argument is a version is unclear, ask concise clarifying questions before making changes. Otherwise proceed proactively.
+
+## Default Operating Mode
+
+When this prompt is invoked, proceed through the workflow without restating the full release procedure to the user. Treat the issue-to-release flow as the standard path and keep progress updates brief.
+
+Default assumptions:
+
+- If no issue number is supplied, create a tracking issue first.
+- If an issue number is supplied, use that issue as the source of truth.
+- Create a branch from the issue, implement the requested change, verify it, push it, and open a PR.
+- Use the issue body, issue comments, and PR body to preserve the release rationale, release notes draft, verification results, and publication status.
+- Do not merge, tag, publish, or create a GitHub Release until the user explicitly says to proceed.
+
+Ask only when:
+
+- The requested version is missing and the workflow has reached a version-required step.
+- The working tree has unrelated uncommitted changes.
+- npm or GitHub permissions block progress.
+- The issue requirements are ambiguous enough that implementation could go in the wrong direction.
+
+Confirmation gates:
+
+- Gate 1: PR merge.
+- Gate 2: version bump, tag push, GitHub Release creation, and the automatic npm publish trigger caused by the tag.
+- Gate 3: npm publish workflow rerun or manual npm publication if the tag-triggered publish needs intervention.
+- Gate 4: post-publication registry, fresh-install, Pages, and Actions verification.
 
 ## Required Safety Rules
 
@@ -32,9 +58,8 @@ The release version may be omitted or set to `TBD` when development should proce
 - Never discard uncommitted user changes.
 - If unrelated local changes exist, stop and ask how to proceed.
 - Create implementation work on a feature branch, never directly on `main`.
-- Do not merge the PR or publish the release until the user confirms they have reviewed the behavior, unless the user explicitly asks to proceed without that confirmation.
 - Use existing repository patterns and keep changes focused on the requested issue.
-- Preserve existing `package.json` package metadata unless the release requires a focused change. Do not add `private: true` only to prevent npm publication; npm publishing is outside this workflow unless explicitly requested.
+- Preserve existing `package.json` package metadata unless the release requires a focused change. Do not add `private: true` only to prevent npm publication.
 - Use non-interactive git commands.
 
 ## Inputs
@@ -46,6 +71,35 @@ Derive these from the invocation when possible:
 - `summary`: short feature or fix summary.
 - `issueBody`: issue requirements. If the user supplied detailed requirements, preserve them.
 - `verificationPlan`: expected local checks. If not supplied, infer from the changed area.
+
+## Standard Record Templates
+
+Use these headings for new release tracking issues unless the issue already has a better structure:
+
+```md
+## Background
+## Scope
+## Release notes draft
+## Verification
+## Publication status
+```
+
+Use this shape for PR bodies:
+
+```md
+Summary:
+- ...
+
+Release notes draft:
+...
+
+Verification:
+- `npm run check`
+- `npm run build`
+- `npm run pack:dry-run`
+
+Closes #<issue-number>
+```
 
 ## Workflow
 
@@ -77,7 +131,7 @@ Derive these from the invocation when possible:
      - `package.json` `version`, which is the source for the app and `window.PvkGadgetsCore.version`
      - `package-lock.json` root package version
      - `README.md` current version and any relevant feature documentation
-   - npm `exports`, package `files`, type declarations, and workflow metadata when the release changes npm package shape
+   - Update npm `exports`, package `files`, type declarations, and workflow metadata when the release changes npm package shape.
    - Keep generated UI behavior consistent with the existing app style.
 
 5. Verify Locally
@@ -86,7 +140,7 @@ Derive these from the invocation when possible:
      ```sh
      npm run check
      npm run build
-   npm run pack:dry-run
+     npm run pack:dry-run
      ```
 
    - Use the existing VS Code task `Start pvkgadgets server` or run `npm run dev` when browser verification is needed.
@@ -100,17 +154,13 @@ Derive these from the invocation when possible:
 
 7. Open Pull Request
    - Create a non-draft PR targeting `main` unless the user asks for a draft.
-   - Include:
-     - concise summary
-     - notable implementation details
-     - verification commands and manual checks
-     - `Fixes #<issue-number>`
+   - Include a concise summary, notable implementation details, verification commands and manual checks, release notes draft, and `Fixes #<issue-number>`.
    - Report the PR URL.
 
 8. Wait for User Confirmation
    - Ask the user to confirm their own manual check before merge/release.
    - If `version` is pending, ask the user to choose the final release version before continuing to merge/release steps that require version metadata.
-   - When the user explicitly asks to proceed through release publication, continue.
+   - When they explicitly say to proceed, continue.
 
 9. Merge PR
    - Re-check PR status, review requirements, and local working tree.
@@ -122,35 +172,30 @@ Derive these from the invocation when possible:
       - If `version` is pending, stop and ask for the final version before changing files, tagging, or publishing a release.
       - Once the final version is chosen, normalize it to both `X.Y.Z` and `vX.Y.Z` forms and check that the tag does not already exist.
       - If version references were deferred, create a focused version bump commit on `main` or on a release-prep branch/PR if the user wants review before publication.
-    - Create an annotated tag `vX.Y.Z` on the merged `main` commit.
-    - Push the tag.
-         - The `Publish npm package` workflow runs on `v*` tag pushes and publishes with npm Trusted Publishing. It expects:
-            - npm package name: `@pkistudio/pvkgadgets`
-            - GitHub owner/repository: `pkistudio/pvkgadgets`
-            - workflow filename: `publish-npm.yml`
-            - npm Trusted Publishing environment: none / blank, unless the workflow is later changed to use one.
-         - If npm publish fails with `E404` or `no permission`, explain that npm Trusted Publishing or initial package ownership is not configured. Do not keep rerunning the same job until npm permissions are fixed.
-         - If the version was already published manually, do not rerun the publish job for the same tag/version; npm versions are immutable and the rerun will fail.
+    - Create an annotated tag `vX.Y.Z` on the merged `main` commit and push it only after the user has approved Gate 2.
+      - The `Publish npm package` workflow runs on `v*` tag pushes and publishes with npm Trusted Publishing. It expects:
+        - npm package name: `@pkistudio/pvkgadgets`
+        - GitHub owner/repository: `pkistudio/pvkgadgets`
+        - workflow filename: `publish-npm.yml`
+        - npm Trusted Publishing environment: none / blank, unless the workflow is later changed to use one.
+      - For scoped npm packages, `E404` during publish can mean the package does not exist yet or the workflow/account lacks scope permission.
+      - If npm publish fails with `E404` or `no permission`, explain that npm Trusted Publishing or initial package ownership is not configured. Do not keep rerunning the same job until npm permissions are fixed.
+      - Do not create a new tag just to retry npm publication when the version and tag are already correct. After fixing npm permissions or Trusted Publishing, rerun the failed publish workflow or publish manually from an authorized npm account.
+      - If the version was already published manually, do not rerun the publish job for the same tag/version; npm versions are immutable and the rerun will fail.
     - Create a GitHub Release named `vX.Y.Z` with release notes summarizing user-facing changes and referencing the issue.
     - Mark it as the latest stable release, not draft and not prerelease, unless instructed otherwise.
-      - After publication, verify `npm view @pkistudio/pvkgadgets@X.Y.Z version dist-tags dist.tarball --json` and, when practical, perform a fresh temporary install from npm and import the package entry points.
+    - After publication, verify `npm view @pkistudio/pvkgadgets@X.Y.Z version dist-tags dist.tarball --json` and, when practical, perform a fresh temporary install from npm and import the package entry points.
 
-11. Deploy GitHub Pages
-   - Confirm `.github/workflows/pages.yml` exists and deploys the Vite `dist` output to GitHub Pages.
-   - Confirm the Pages workflow is triggered by the release merge to `main`. If needed and the user has permission, trigger `Deploy GitHub Pages` manually with `workflow_dispatch`.
-   - Watch the Pages workflow until it succeeds, fails, or remains running long enough that it should be reported as pending.
-   - Confirm the deployed Pages URL from the `github-pages` environment or the workflow deployment output.
-   - If the workflow fails, report the failing job and log summary before stopping; do not publish extra tags or releases to retry.
-
-12. Confirm Final State
-   - Verify PR is merged and closed.
-   - Verify issue is closed as completed.
-   - Verify tag exists on `main` HEAD.
-   - Verify GitHub Release is published.
-   - Verify npm package version is published and has the expected dist-tag.
-   - Verify GitHub Pages deployment completed successfully or is clearly reported as pending/failed.
-   - Verify relevant GitHub Actions completed or are still running.
-   - Final response must include issue, PR, release, tag, Pages URL/deployment status, and any Actions status.
+11. Confirm Final State
+    - Verify:
+      - PR is merged and closed.
+      - issue is closed as completed.
+      - tag exists on `main` HEAD.
+      - GitHub Release is published.
+      - npm package version is published and has the expected dist-tag.
+      - GitHub Pages deployment from `.github/workflows/pages.yml` completed, failed, or is clearly reported as pending.
+      - relevant GitHub Actions completed or are still running.
+    - Final response must include issue, PR, release, tag, npm, Pages, and Actions status.
 
 ## Final Response Format
 
