@@ -133,6 +133,11 @@ main {
   max-height: none !important;
 }
 
+:host([data-pvkgadgets-viewer-readonly="true"]) [data-node-action="edit"],
+[data-pvkgadgets-viewer-readonly="true"] [data-node-action="edit"] {
+  display: none !important;
+}
+
 @media (max-width: 820px) {
   .viewer {
     min-height: 520px !important;
@@ -1480,11 +1485,26 @@ function showSelectedNode(): void {
 }
 
 function applyViewerEditState(): void {
-  viewer?.setEditable?.(isViewerEditableSelection());
+  const editable = isViewerEditableSelection();
+  viewer?.setEditable?.(editable);
+  setEmbeddedViewerReadOnly(!editable);
 }
 
 function isViewerEditableSelection(): boolean {
   return selectedNode?.kind === 'subjectdn';
+}
+
+function setEmbeddedViewerReadOnly(readOnly: boolean): void {
+  const root = viewer?.root;
+  if (!root) return;
+  const value = String(readOnly);
+
+  if (root instanceof ShadowRoot) {
+    root.host.setAttribute('data-pvkgadgets-viewer-readonly', value);
+    return;
+  }
+
+  if (root instanceof Element) root.setAttribute('data-pvkgadgets-viewer-readonly', value);
 }
 
 function takeTransferredViewerData(): { label: string; bytes: Uint8Array; theme?: AppTheme } | null {
