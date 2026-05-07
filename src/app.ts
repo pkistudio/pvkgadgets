@@ -11,7 +11,7 @@ import {
   type SubjectDnMaterial
 } from './core';
 import { PkiStudio, PkiStudioCore, PkiStudioOidResolver } from './pkistudio';
-import type { PkiStudioApi, PkiStudioCoreApi, PkiStudioInstance, PkiStudioOidResolverApi } from './pkistudio-types';
+import type { PkiStudioApi, PkiStudioCoreApi, PkiStudioCoreNode, PkiStudioInstance, PkiStudioOidResolverApi } from './pkistudio-types';
 
 type SaveFilePickerOptions = {
   suggestedName?: string;
@@ -52,8 +52,6 @@ type SelectedKeyNode = {
 
 type SupportedKeyAlgorithm = KeyAlgorithmCandidate;
 
-type ViewerRoot = DocumentFragment | Element;
-
 export type PrivateKeyGadgetsSaveFileRequest = {
   bytes: Uint8Array;
   suggestedName: string;
@@ -80,6 +78,7 @@ export type PrivateKeyGadgetsAppInstance = {
   readonly keys: readonly KeyMaterial[];
   readonly selectedNode: SelectedKeyNode | null;
   close: () => void;
+  openBytes: (bytes: Uint8Array, sourceName?: string) => Promise<void>;
 };
 
 const APP_VERSION = PvkGadgetsCore.version;
@@ -134,34 +133,9 @@ main {
   max-height: none !important;
 }
 
-:host(.pvkgadgets-viewer-readonly) [data-action="toggle-load-menu"],
-:host(.pvkgadgets-viewer-readonly) [data-action="open"],
-:host(.pvkgadgets-viewer-readonly) [data-action="load-clipboard-pem"],
-:host(.pvkgadgets-viewer-readonly) [data-action="load-clipboard-hex"],
-:host(.pvkgadgets-viewer-readonly) [data-action="close"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="edit"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="insert-before"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="insert-before-new-item"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="insert-before-clipboard-hex"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="add-child"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="add-child-new-item"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="add-child-clipboard-hex"],
-:host(.pvkgadgets-viewer-readonly) [data-node-action="delete"],
-.pvkgadgets-viewer-readonly [data-action="toggle-load-menu"],
-.pvkgadgets-viewer-readonly [data-action="open"],
-.pvkgadgets-viewer-readonly [data-action="load-clipboard-pem"],
-.pvkgadgets-viewer-readonly [data-action="load-clipboard-hex"],
-.pvkgadgets-viewer-readonly [data-action="close"],
-.pvkgadgets-viewer-readonly [data-node-action="edit"],
-.pvkgadgets-viewer-readonly [data-node-action="insert-before"],
-.pvkgadgets-viewer-readonly [data-node-action="insert-before-new-item"],
-.pvkgadgets-viewer-readonly [data-node-action="insert-before-clipboard-hex"],
-.pvkgadgets-viewer-readonly [data-node-action="add-child"],
-.pvkgadgets-viewer-readonly [data-node-action="add-child-new-item"],
-.pvkgadgets-viewer-readonly [data-node-action="add-child-clipboard-hex"],
-.pvkgadgets-viewer-readonly [data-node-action="delete"] {
-  opacity: 0.45;
-  pointer-events: none;
+:host([data-pvkgadgets-viewer-readonly="true"]) [data-node-action="edit"],
+[data-pvkgadgets-viewer-readonly="true"] [data-node-action="edit"] {
+  display: none !important;
 }
 
 @media (max-width: 820px) {
@@ -189,7 +163,7 @@ app.innerHTML = `
           </div>
           <button id="openKeyButton" type="button">Open</button>
           <button id="saveKeyButton" type="button">Save</button>
-          <input id="openKeyInput" class="visually-hidden" type="file" accept=".p12,.pfx,application/pkcs12,application/x-pkcs12" />
+          <input id="openKeyInput" class="visually-hidden" type="file" accept=".p12,.pfx,.der,.pem,.cer,.crt,.csr,.p7b,.p7c,.crl,.bin,application/pkcs12,application/x-pkcs12,application/pkix-cert,application/pkcs10,application/octet-stream,text/plain" />
           <input id="certificateInput" class="visually-hidden" type="file" accept=".cer,.crt,.der,.pem,application/pkix-cert,application/x-x509-ca-cert" />
         </nav>
         <div id="privateKeyMenu" class="node-context-menu" role="menu" hidden>
@@ -418,22 +392,27 @@ closeAboutButton.addEventListener('click', () => {
 
 const bootViewer = async () => {
   if (!PkiStudio) {
-    setNotice('pkistudiojs viewer could not be loaded.', true);
-    logApi('pkistudiojs.init', 'Viewer API was not available.', 'error');
+    setNotice('PkiStudioJS viewer could not be loaded.', true);
+    logApi('PkiStudioJS.init', 'Viewer API was not available.', 'error');
     return;
   }
+
+  const transferredData = takeTransferredViewerData();
+  if (transferredData && !isPkcs12Data(transferredData.bytes, transferredData.label) && redirectToStandaloneViewer(transferredData)) return;
 
   viewer = PkiStudio.init({
     mount: viewerMount,
     oidResolver: options.viewer?.oidResolver ?? PkiStudioOidResolver,
-    newWindowUrl: options.viewer?.newWindowUrl ?? 'viewer.html'
+    newWindowUrl: options.viewer?.newWindowUrl ?? 'viewer.html',
+    editable: false
   });
-  logApi('pkistudiojs.init', `Viewer ${PkiStudio.version ?? '(unknown version)'} mounted.`);
+  logApi('PkiStudioJS.init', `Viewer ${PkiStudio.version ?? '(unknown version)'} mounted.`);
   applyEmbeddedViewerStyles(viewer);
   applyViewerEditState();
   listenForViewerChanges(viewer);
 
   await populateSupportedAlgorithms();
+  if (transferredData) await openDataBytes(transferredData.bytes, transferredData.label);
 };
 
 if (document.readyState === 'loading') {
@@ -483,10 +462,7 @@ openKeyInput.addEventListener('change', async () => {
   openKeyInput.value = '';
   if (!file) return;
 
-  const password = await requestPkcs12Password(`Open ${file.name}`, { value: 'open', label: 'Open' });
-  if (password === null) return;
-
-  await openPkcs12File(file, password);
+  await openDataFile(file);
 });
 
 certificateInput.addEventListener('change', async () => {
@@ -735,14 +711,29 @@ async function generateKeyPair(selection: string): Promise<void> {
   }
 }
 
-async function openPkcs12File(file: File, password: string): Promise<void> {
+async function openDataFile(file: File): Promise<void> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  await openDataBytes(bytes, file.name);
+}
+
+async function openDataBytes(bytes: Uint8Array, sourceName = 'data'): Promise<void> {
+  if (isPkcs12Data(bytes, sourceName)) {
+    const password = await requestPkcs12Password(`Open ${sourceName}`, { value: 'open', label: 'Open' });
+    if (password === null) return;
+    await openPkcs12Bytes(bytes, sourceName, password);
+    return;
+  }
+
+  openAsn1ViewerBytes(bytes, sourceName);
+}
+
+async function openPkcs12Bytes(bytes: Uint8Array, sourceName: string, password: string): Promise<void> {
   setBusy(true);
-  setNotice(`Opening ${file.name}...`);
+  setNotice(`Opening ${sourceName}...`);
 
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    logApi('PKCS#12.open', `Reading ${file.name} (${bytes.byteLength} bytes).`);
-    const openedKeys = (await PvkGadgetsCore.readPkcs12(bytes, password, { sourceName: file.name, createId: createKeyId })).map((key) => ({
+    logApi('PKCS#12.open', `Reading ${sourceName} (${bytes.byteLength} bytes).`);
+    const openedKeys = (await PvkGadgetsCore.readPkcs12(bytes, password, { sourceName, createId: createKeyId })).map((key) => ({
       ...key,
       label: key.label || getDefaultKeyLabel(key)
     }));
@@ -750,13 +741,28 @@ async function openPkcs12File(file: File, password: string): Promise<void> {
     for (const keyMaterial of openedKeys) addKeyMaterial(keyMaterial);
 
     const suffix = openedKeys.length === 1 ? '' : 's';
-    setNotice(`Opened ${openedKeys.length} key${suffix} from ${file.name}.`);
-    logApi('PKCS#12.open', `Opened ${openedKeys.length} key${suffix} from ${file.name}.`);
+    setNotice(`Opened ${openedKeys.length} key${suffix} from ${sourceName}.`);
+    logApi('PKCS#12.open', `Opened ${openedKeys.length} key${suffix} from ${sourceName}.`);
   } catch (error) {
     setNotice(error instanceof Error ? error.message : String(error), true);
     logApi('PKCS#12.open', error instanceof Error ? error.message : String(error), 'error');
   } finally {
     setBusy(false);
+  }
+}
+
+function openAsn1ViewerBytes(bytes: Uint8Array, sourceName: string): void {
+  try {
+    const viewerBytes = getViewerInputBytes(bytes);
+    const notice = `Opened ${sourceName} in the ASN.1 viewer.`;
+    selectedNode = null;
+    renderKeyTree();
+    showBytes(viewerBytes, notice);
+    setNotice(notice);
+    logApi('PkiStudioJS.viewer.open', `Opened ${sourceName} (${viewerBytes.byteLength} bytes).`);
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+    logApi('PkiStudioJS.viewer.open', error instanceof Error ? error.message : String(error), 'error');
   }
 }
 
@@ -1226,7 +1232,6 @@ function listenForViewerChanges(instance: PkiStudioInstance): void {
       void openViewerNodeInHost(event, instance);
     }, true);
   }
-  instance.root.addEventListener('click', guardReadonlyViewerAction, true);
   instance.root.addEventListener('submit', () => scheduleSelectedSubjectDnRefresh(instance), true);
   instance.root.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
@@ -1398,7 +1403,7 @@ function getDeleteLabel(keyMaterial: KeyMaterial, target: SelectedKeyNode): stri
 
 function showBytes(bytes: Uint8Array, notice: string): void {
   if (!viewer) {
-    setNotice('pkistudiojs viewer is not ready yet.', true);
+    setNotice('PkiStudioJS viewer is not ready yet.', true);
     return;
   }
 
@@ -1479,54 +1484,103 @@ function showSelectedNode(): void {
   showBytes(bytes, `${info.label} ${label} (${format})`);
 }
 
-function guardReadonlyViewerAction(event: Event): void {
-  if (isViewerEditableSelection()) return;
-  const target = event.target instanceof Element ? event.target : null;
-  const button = target?.closest<HTMLButtonElement>('button[data-action], button[data-node-action]');
-  if (!button || !isReadonlyViewerAction(button)) return;
-
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  setNotice('Viewer editing is available only while a SubjectDN item is selected.', true);
-}
-
 function applyViewerEditState(): void {
-  if (!viewer?.root) return;
   const editable = isViewerEditableSelection();
-  const stateElement = getViewerStateElement(viewer.root);
-  stateElement?.classList.toggle('pvkgadgets-viewer-readonly', !editable);
-
-  for (const button of viewer.root.querySelectorAll<HTMLButtonElement>('button[data-action], button[data-node-action]')) {
-    if (!isReadonlyViewerAction(button)) continue;
-    button.disabled = !editable;
-    button.title = editable ? '' : 'Viewer editing is available only while a SubjectDN item is selected.';
-  }
+  viewer?.setEditable?.(editable);
+  setEmbeddedViewerReadOnly(!editable);
 }
 
 function isViewerEditableSelection(): boolean {
   return selectedNode?.kind === 'subjectdn';
 }
 
-function getViewerStateElement(root: ViewerRoot): HTMLElement | null {
-  if (root instanceof ShadowRoot) return root.host instanceof HTMLElement ? root.host : null;
-  return root instanceof HTMLElement ? root : null;
+function setEmbeddedViewerReadOnly(readOnly: boolean): void {
+  const root = viewer?.root;
+  if (!root) return;
+  const value = String(readOnly);
+
+  if (root instanceof ShadowRoot) {
+    root.host.setAttribute('data-pvkgadgets-viewer-readonly', value);
+    return;
+  }
+
+  if (root instanceof Element) root.setAttribute('data-pvkgadgets-viewer-readonly', value);
 }
 
-function isReadonlyViewerAction(button: HTMLButtonElement): boolean {
-  const action = button.dataset.action;
-  if (action === 'toggle-load-menu' || action === 'open' || action === 'load-clipboard-pem' || action === 'load-clipboard-hex' || action === 'close') return true;
+function takeTransferredViewerData(): { label: string; bytes: Uint8Array; theme?: AppTheme } | null {
+  const url = new URL(window.location.href);
+  const transferType = url.searchParams.has('subtree') ? 'subtree' : 'expand';
+  const key = url.searchParams.get(transferType);
+  if (!key) return null;
+  const theme = url.searchParams.get('theme');
 
-  const nodeAction = button.dataset.nodeAction;
-  return (
-    nodeAction === 'edit' ||
-    nodeAction === 'delete' ||
-    nodeAction === 'add-child' ||
-    nodeAction === 'add-child-new-item' ||
-    nodeAction === 'add-child-clipboard-hex' ||
-    nodeAction === 'insert-before' ||
-    nodeAction === 'insert-before-new-item' ||
-    nodeAction === 'insert-before-clipboard-hex'
-  );
+  try {
+    const payload = JSON.parse(localStorage.getItem(key) || 'null') as { label?: string; bytes?: string } | null;
+    localStorage.removeItem(key);
+    if (!payload?.bytes) throw new Error('Transferred ASN.1 data was not found.');
+    return {
+      label: payload.label || 'transferred ASN.1 data',
+      bytes: getPkiStudioCore().base64ToBytes(payload.bytes),
+      theme: theme === 'dark' || theme === 'light' ? theme : undefined
+    };
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+    return null;
+  } finally {
+    url.searchParams.delete(transferType);
+    url.searchParams.delete('theme');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }
+}
+
+function redirectToStandaloneViewer(transfer: { label: string; bytes: Uint8Array; theme?: AppTheme }): boolean {
+  const core = getPkiStudioCore();
+  const key = `pvkgadgets-viewer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  try {
+    localStorage.setItem(key, JSON.stringify({ label: transfer.label, bytes: core.bytesToBase64(transfer.bytes) }));
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : String(error), true);
+    return false;
+  }
+
+  const url = new URL(options.viewer?.newWindowUrl ?? 'viewer.html', window.location.href);
+  url.searchParams.set('subtree', key);
+  const theme = transfer.theme ?? getRequestedTheme();
+  if (theme) url.searchParams.set('theme', theme);
+  url.hash = '';
+  window.location.replace(url.toString());
+  return true;
+}
+
+function getViewerInputBytes(bytes: Uint8Array): Uint8Array {
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  if (/-----BEGIN [A-Z0-9 ]+-----/i.test(text)) return getPkiStudioCore().decodePem(text);
+  return bytes;
+}
+
+function isPkcs12Data(bytes: Uint8Array, sourceName = ''): boolean {
+  if (/\.(p12|pfx)$/i.test(sourceName)) return true;
+
+  try {
+    const core = getPkiStudioCore();
+    const [root] = core.parseElements(bytes, 0, bytes.byteLength);
+    const version = root?.children[0];
+    const authSafe = root?.children[1];
+    const contentType = authSafe?.children[0];
+    if (!root || root.tagClass !== 0 || root.tagNumber !== 16 || !root.constructed) return false;
+    if (!version || version.tagClass !== 0 || version.tagNumber !== 2 || !isIntegerValue(version, bytes, 3)) return false;
+    if (!authSafe || authSafe.tagClass !== 0 || authSafe.tagNumber !== 16 || !authSafe.constructed) return false;
+    if (!contentType || contentType.tagClass !== 0 || contentType.tagNumber !== 6) return false;
+    return core.decodeOid(bytes.slice(contentType.valueStart, contentType.valueEnd)) === '1.2.840.113549.1.7.1';
+  } catch {
+    return false;
+  }
+}
+
+function isIntegerValue(node: PkiStudioCoreNode, bytes: Uint8Array, expected: number): boolean {
+  const value = bytes.slice(node.valueStart, node.valueEnd);
+  return value.length > 0 && value.every((byte, index) => (index < value.length - 1 ? byte === 0 : byte === expected));
 }
 
 function renderKeyTree(): void {
@@ -2011,7 +2065,7 @@ function recognizeKeyMaterial(material: Pick<KeyMaterial, 'privateKeyDer' | 'pub
 
 function getPkiStudioCore(): PkiStudioCoreApi {
   const core = PkiStudio.core ?? PkiStudioCore;
-  if (!core) throw new Error('pkistudiojs CoreAPI could not be loaded.');
+  if (!core) throw new Error('PkiStudioJS CoreAPI could not be loaded.');
   return core;
 }
 
@@ -2055,6 +2109,9 @@ return {
   },
   close() {
     viewer?.close?.();
+  },
+  openBytes(bytes: Uint8Array, sourceName?: string) {
+    return openDataBytes(bytes, sourceName);
   }
 };
 }

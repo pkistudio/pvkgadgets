@@ -1,14 +1,14 @@
-declare module 'pkistudiojs/core' {
+declare module '@pkistudio/pkistudiojs/core' {
   const api: unknown;
   export default api;
 }
 
-declare module 'pkistudiojs/oid-resolver' {
+declare module '@pkistudio/pkistudiojs/oid-resolver' {
   const api: unknown;
   export default api;
 }
 
-declare module 'pkistudiojs/viewer' {
+declare module '@pkistudio/pkistudiojs/viewer' {
   const api: unknown;
   export default api;
 }

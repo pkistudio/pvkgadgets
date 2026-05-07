@@ -1,6 +1,6 @@
-import importedCore from 'pkistudiojs/core';
-import importedOidResolver from 'pkistudiojs/oid-resolver';
-import importedViewer from 'pkistudiojs/viewer';
+import importedCore from '@pkistudio/pkistudiojs/core';
+import importedOidResolver from '@pkistudio/pkistudiojs/oid-resolver';
+import importedViewer from '@pkistudio/pkistudiojs/viewer';
 import type { PkiStudioApi, PkiStudioCoreApi, PkiStudioOidResolverApi } from './pkistudio-types';
 
 export const PkiStudioCore = importedCore as PkiStudioCoreApi;
