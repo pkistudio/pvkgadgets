@@ -2,7 +2,7 @@
 
 Private Key Gadgets is an experimental browser tool for generating and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree on the left, and sends the selected DER object to the embedded PkiStudioJS ASN.1 viewer on the right.
 
-Current version: 0.3.1
+Current version: 0.4.0
 
 ## Features
 
@@ -119,7 +119,7 @@ Current version: 0.3.1
 - Embeds the npm-provided PkiStudioJS viewer directly in the right pane.
 - Displays the selected PrivateKey, PublicKey, Certificate, SubjectDN, or CSR DER object.
 - Uses PkiStudioJS native read-only mode for read-only key material such as PrivateKey, PublicKey, Certificate, and CSR.
-- Keeps Viewer editing actions enabled only while a SubjectDN item is selected.
+- Keeps Viewer editing actions enabled only while a SubjectDN item is selected, including PkiStudioJS tag-edit support.
 - Keeps the PkiStudioJS Save menu available for writing the currently displayed DER document to a file.
 - Opens PkiStudioJS New Window output in a standalone viewer-only page instead of a new pvkgadgets application shell.
 - Accepts PkiStudioJS New Window transfer data in the pvkgadgets app shell; PKCS#12 data is imported by pvkgadgets, while other ASN.1 data is redirected to the standalone viewer-only page.
