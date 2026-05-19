@@ -1,5 +1,5 @@
 import * as asn1js from 'asn1js';
-import { AttributeTypeAndValue, BasicConstraints, Certificate, CertificationRequest, Extension, RelativeDistinguishedNames, Time } from 'pkijs';
+import { AlgorithmIdentifier as PkijsAlgorithmIdentifier, AttributeTypeAndValue, BasicConstraints, Certificate, CertificationRequest, Extension, RelativeDistinguishedNames, Time } from 'pkijs';
 import { readPkcs12Keys, writePkcs12Keys, type Pkcs12KeyMaterial } from './pkcs12';
 
 export type CsrMaterial = {
@@ -109,6 +109,13 @@ export type PvkGadgetsCoreApi = {
 type Asn1Node = ReturnType<typeof asn1js.fromBER>['result'];
 
 const CORE_VERSION = __PVKGADGETS_VERSION__;
+
+const RSA_PKCS1_SIGNATURE_ALGORITHM_OIDS: Record<string, string> = {
+  'SHA-1': '1.2.840.113549.1.1.5',
+  'SHA-256': '1.2.840.113549.1.1.11',
+  'SHA-384': '1.2.840.113549.1.1.12',
+  'SHA-512': '1.2.840.113549.1.1.13'
+};
 
 export const KEY_ALGORITHM_CANDIDATES: KeyAlgorithmCandidate[] = [
   ...createRsaCandidates('RSASSA-PKCS1-v1_5', 'SHA-256', ['sign', 'verify']),
@@ -365,7 +372,11 @@ async function createCsr(options: CreateCsrOptions): Promise<CsrResult> {
   request.subject = subject;
   await request.subjectPublicKeyInfo.importKey(publicKey);
   request.attributes = [];
-  await request.sign(privateKey, options.hashAlgorithm);
+  if (info.family === 'RSA') {
+    await signCertificationRequestWithRsaPkcs1(request, privateKey, options.hashAlgorithm);
+  } else {
+    await request.sign(privateKey, options.hashAlgorithm);
+  }
 
   return {
     subjectDn: options.subjectDn,
@@ -395,7 +406,11 @@ async function createSelfSignedCertificate(options: CreateSelfSignedCertificateO
   certificate.notAfter = new Time({ type: 0, value: notAfter });
   await certificate.subjectPublicKeyInfo.importKey(publicKey);
   certificate.extensions = createSelfSignedCertificateExtensions(options.keyUsages);
-  await certificate.sign(privateKey, options.hashAlgorithm);
+  if (info.family === 'RSA') {
+    await signCertificateWithRsaPkcs1(certificate, privateKey, options.hashAlgorithm);
+  } else {
+    await certificate.sign(privateKey, options.hashAlgorithm);
+  }
 
   return {
     subjectDn: options.subjectDn,
@@ -417,6 +432,38 @@ function getSigningKeyAlgorithm(info: RecognizedKeyInfo, hashAlgorithm: string):
   if (info.family === 'RSA') return { name: 'RSASSA-PKCS1-v1_5', hash: hashAlgorithm };
   if (info.family === 'EC' && info.namedCurve) return { name: 'ECDSA', namedCurve: info.namedCurve };
   throw new Error(`${info.label} is not supported for CSR signing yet.`);
+}
+
+async function signCertificationRequestWithRsaPkcs1(request: CertificationRequest, privateKey: CryptoKey, hashAlgorithm: string): Promise<void> {
+  request.signatureAlgorithm = createRsaPkcs1SignatureAlgorithmIdentifier(hashAlgorithm);
+  await signRsaPkcs1Der(request as unknown as RsaPkcs1Signable, privateKey);
+}
+
+async function signCertificateWithRsaPkcs1(certificate: Certificate, privateKey: CryptoKey, hashAlgorithm: string): Promise<void> {
+  certificate.signature = createRsaPkcs1SignatureAlgorithmIdentifier(hashAlgorithm);
+  certificate.signatureAlgorithm = createRsaPkcs1SignatureAlgorithmIdentifier(hashAlgorithm);
+  await signRsaPkcs1Der(certificate, privateKey);
+}
+
+type RsaPkcs1Signable = {
+  tbsView: Uint8Array;
+  signatureValue: asn1js.BitString;
+  encodeTBS: () => asn1js.Sequence;
+};
+
+async function signRsaPkcs1Der(target: RsaPkcs1Signable, privateKey: CryptoKey): Promise<void> {
+  target.tbsView = new Uint8Array(target.encodeTBS().toBER(false));
+  const signature = await crypto.subtle.sign({ name: 'RSASSA-PKCS1-v1_5' }, privateKey, toArrayBuffer(target.tbsView));
+  target.signatureValue = new asn1js.BitString({ valueHex: signature });
+}
+
+function createRsaPkcs1SignatureAlgorithmIdentifier(hashAlgorithm: string): PkijsAlgorithmIdentifier {
+  const algorithmId = RSA_PKCS1_SIGNATURE_ALGORITHM_OIDS[hashAlgorithm.toUpperCase()];
+  if (!algorithmId) throw new Error(`${hashAlgorithm} is not supported for RSA PKCS#1 v1.5 signing.`);
+  return new PkijsAlgorithmIdentifier({
+    algorithmId,
+    algorithmParams: new asn1js.Null()
+  });
 }
 
 function createSelfSignedCertificateExtensions(keyUsages: string[]): Extension[] {
