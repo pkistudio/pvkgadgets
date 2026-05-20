@@ -1,6 +1,6 @@
 {
   "name": "@pkistudio/pvkgadgets",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Browser PKI key material tools and reusable Private Key Gadgets API.",
   "type": "module",
   "main": "./dist/core.js",
