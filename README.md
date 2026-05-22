@@ -2,6 +2,8 @@
 
 Private Key Gadgets is an experimental browser tool and reusable TypeScript API for generating, importing, exporting, and inspecting PKI key material. It keeps key-related objects in a PkiStudioJS-style tree and displays selected DER objects with the embedded PkiStudioJS ASN.1 viewer.
 
+Hosted viewer: https://pkistudio.github.io/pvkgadgets/
+
 Documentation: https://github.com/pkistudio/pvkgadgets/wiki
 
 Current version: 0.4.2
